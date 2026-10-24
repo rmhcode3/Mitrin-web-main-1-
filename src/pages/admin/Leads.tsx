@@ -6,21 +6,21 @@ import { rpc, select, unwrap, type Row } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { useAction, useAsync } from '../../lib/hooks'
-import { AGE_GROUPS, GROUP_PREFS, LEVELS, SOURCES, loadApprovedTeachers, loadLanguages, noteField, waLink } from '../../lib/domain'
-import { LEAD_STAGES, TIMEZONES, digits, fmtDate, fmtDateTime, label, stageLabel } from '../../lib/format'
+import { GROUP_PREFS, LEVELS, SOURCES, loadApprovedTeachers, loadLanguages, noteField, waLink } from '../../lib/domain'
+import { LEAD_STAGES, digits, fmtDate, fmtDateTime, label, stageLabel } from '../../lib/format'
 import { DemoScheduler } from '../../components/DemoScheduler'
-import { Badge, Button, Card, DataTable, Drawer, Empty, ErrorBox, ExportMenu, Field, Input, KV, Modal, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Textarea, cx, useConfirm } from '../../components/ui'
+import { Badge, Button, Card, Drawer, Empty, ErrorBox, ExportMenu, Field, Input, KV, Modal, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Textarea, cx, useConfirm } from '../../components/ui'
 import { useToast } from '../../lib/toast'
 
 const schema = z.object({
-  enquirer_name: z.string().trim().min(2, 'Enter the name of the person enquiring'),
-  learner_name: z.string().trim().min(2, 'Enter the learner’s name'),
+  enquirer_name: z.string().trim().min(2, 'Enter the lead name'),
+  age_group: z.string().trim().regex(/^[0-9]{1,3}$/, 'Enter the age in years'),
   phone: z.string().refine((v) => /^[0-9]{7,15}$/.test(digits(v)), 'Enter 7–15 digits'),
   email: z.string().trim().refine((v) => v === '' || /^\S+@\S+\.\S+$/.test(v), 'Enter a valid email or leave blank'),
   language_id: z.string().min(1, 'Choose a language'),
 })
 
-const blank = { enquirer_name: '', learner_name: '', phone: '', email: '', language_id: '', level: 'Beginner', age_group: 'Adult (18+)', preferred_timing: '', group_preference: 'either', source: 'Call', notes: '', tz: 'Asia/Kolkata' }
+const blank = { enquirer_name: '', learner_name: '', phone: '', email: '', language_id: '', level: 'Beginner', age_group: '', preferred_timing: '', group_preference: 'either', source: 'Call', notes: '', tz: 'Asia/Kolkata' }
 
 function StageMenu({ lead, onPick }: { lead: Row; onPick: (stage: string) => void }) {
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
@@ -48,10 +48,10 @@ function StageMenu({ lead, onPick }: { lead: Row; onPick: (stage: string) => voi
   )
 }
 
-function LeadForm({ open, lead, languages, leads, onClose, onSaved }: { open: boolean; lead?: Row | null; languages: Row[]; leads: Row[]; onClose: () => void; onSaved: (id: string, scheduleDemo: boolean) => void }) {
+function LeadForm({ open, lead, languages, leads, onClose, onSaved, inline }: { open: boolean; lead?: Row | null; languages: Row[]; leads: Row[]; onClose: () => void; onSaved: () => void; inline?: boolean }) {
   const init = useMemo(() => lead ? {
     ...blank, enquirer_name: lead.enquirer_name, learner_name: lead.learner_name, phone: lead.phone ?? '', email: lead.email ?? '', language_id: lead.language_id ?? '',
-    level: lead.level ?? 'Beginner', age_group: lead.age_group ?? 'Adult (18+)', preferred_timing: lead.preferred_timing ?? '', group_preference: lead.group_preference, source: lead.source,
+    level: lead.level ?? 'Beginner', age_group: /^[0-9]{1,3}$/.test(lead.age_group ?? '') ? lead.age_group : '', preferred_timing: lead.preferred_timing ?? '', group_preference: lead.group_preference, source: lead.source,
     notes: (lead.notes ?? '').split('\n').filter((l: string) => !/^Timezone:/i.test(l)).join('\n'), tz: noteField(lead.notes, 'Timezone') || 'Asia/Kolkata',
   } : blank, [lead])
   const [f, setF] = useState(init)
@@ -60,45 +60,48 @@ function LeadForm({ open, lead, languages, leads, onClose, onSaved }: { open: bo
   const { busy, run } = useAction()
   const set = (k: keyof typeof blank) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }))
 
-  const save = (scheduleDemo: boolean) => run(async () => {
+  const save = () => run(async () => {
     const p = schema.safeParse(f)
     if (!p.success) { const m: Record<string, string> = {}; for (const i of p.error.issues) m[String(i.path[0])] = i.message; setErrs(m); return }
     setErrs({})
     const phone = digits(f.phone)
     // same learner + same phone = probably the same enquiry. Different learner with the same phone (siblings) is fine.
-    const twin = leads.find((l) => l.id !== lead?.id && l.phone === phone && l.learner_name.trim().toLowerCase() === f.learner_name.trim().toLowerCase() && !['lost'].includes(l.stage))
+    const twin = leads.find((l) => l.id !== lead?.id && l.phone === phone && l.learner_name.trim().toLowerCase() === f.enquirer_name.trim().toLowerCase() && !['lost'].includes(l.stage))
     if (twin && !dupe) { setDupe(twin); return }
     const notes = [f.notes.trim(), f.tz !== 'Asia/Kolkata' ? `Timezone: ${f.tz}` : ''].filter(Boolean).join('\n') || null
-    const row = { enquirer_name: f.enquirer_name.trim(), learner_name: f.learner_name.trim(), phone, email: f.email.trim() || null, language_id: f.language_id, level: f.level, age_group: f.age_group, preferred_timing: f.preferred_timing.trim() || null, group_preference: f.group_preference, source: f.source, notes }
-    const id = lead
-      ? (await unwrap(supabase.from('leads').update(row).eq('id', lead.id).select('id').single()) as Row).id
-      : (await unwrap(supabase.from('leads').insert(row).select('id').single()) as Row).id
-    onSaved(id, scheduleDemo)
+    const row = { enquirer_name: f.enquirer_name.trim(), learner_name: f.enquirer_name.trim(), phone, email: f.email.trim() || null, language_id: f.language_id, level: f.level, age_group: f.age_group.trim(), preferred_timing: f.preferred_timing.trim() || null, group_preference: f.group_preference, source: f.source, notes }
+    if (lead) await unwrap(supabase.from('leads').update(row).eq('id', lead.id))
+    else await unwrap(supabase.from('leads').insert(row))
+    onSaved()
   }, lead ? 'Enquiry updated' : 'Lead added to the pipeline')
 
-  return (
-    <Modal open={open} onClose={onClose} wide title={lead ? 'Edit enquiry' : 'Log incoming prospect enquiry'}
-      footer={<><Button onClick={onClose}>Cancel</Button>{!lead && <Button onClick={() => void save(true)} loading={busy}>Save & schedule demo</Button>}<Button variant="primary" onClick={() => void save(false)} loading={busy}>{dupe ? 'Add anyway' : lead ? 'Save changes' : 'Log lead'}</Button></>}>
-      {dupe && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">An open enquiry for <b>{dupe.learner_name}</b> with this phone already exists (stage: {stageLabel(dupe.stage)}). Tap <b>Add anyway</b> if this is a separate enquiry.</div>}
+  const saveBtn = <Button variant="primary" onClick={() => void save()} loading={busy}>{dupe ? 'Add anyway' : lead ? 'Save changes' : 'Create Lead'}</Button>
+  const body = (
+    <>
+      {dupe &&<div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">An open enquiry for <b>{dupe.learner_name}</b> with this phone already exists (stage: {stageLabel(dupe.stage)}). Tap <b>Add anyway</b> if this is a separate enquiry.</div>}
       <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="Contact / enquirer name" required error={errs.enquirer_name}><Input value={f.enquirer_name} onChange={set('enquirer_name')} placeholder="Parent or person enquiring" /></Field>
-        <Field label="Learner name" required error={errs.learner_name} hint="A parent can enquire for several learners."><Input value={f.learner_name} onChange={set('learner_name')} /></Field>
+        <Field label="Lead Name" required error={errs.enquirer_name}><Input value={f.enquirer_name} onChange={set('enquirer_name')} /></Field>
         <Field label="WhatsApp / phone" required error={errs.phone}><Input inputMode="tel" value={f.phone} onChange={set('phone')} placeholder="919876543210" /></Field>
         <Field label="Email" error={errs.email}><Input type="email" value={f.email} onChange={set('email')} placeholder="name@domain.com" /></Field>
         <Field label="Language interested" required error={errs.language_id}><Select value={f.language_id} onChange={set('language_id')}><option value="">Choose…</option>{languages.filter((l) => l.active).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>
         <Field label="Level"><Select value={f.level} onChange={set('level')}>{LEVELS.map((l) => <option key={l}>{l}</option>)}</Select></Field>
-        <Field label="Age group"><Select value={f.age_group} onChange={set('age_group')}>{AGE_GROUPS.map((l) => <option key={l}>{l}</option>)}</Select></Field>
-        <Field label="Individual or group"><Select value={f.group_preference} onChange={set('group_preference')}>{GROUP_PREFS.map((g) => <option key={g.v} value={g.v}>{g.l}</option>)}</Select></Field>
-        <Field label="Preferred days & timing" className="sm:col-span-2"><Input value={f.preferred_timing} onChange={set('preferred_timing')} placeholder="e.g. Mon/Wed mornings" /></Field>
-        <Field label="Learner time zone"><Select value={f.tz} onChange={set('tz')}>{TIMEZONES.map((z) => <option key={z}>{z}</option>)}</Select></Field>
+        <Field label="Age" required error={errs.age_group}><Input inputMode="numeric" maxLength={3} value={f.age_group} onChange={set('age_group')} placeholder="e.g. 25" /></Field>
+        <Field label="Class format"><Select value={f.group_preference} onChange={set('group_preference')}>{GROUP_PREFS.map((g) => <option key={g.v} value={g.v}>{g.l}</option>)}</Select></Field>
         <Field label="Lead source"><Select value={f.source} onChange={set('source')}>{[...new Set([f.source, ...SOURCES])].map((s) => <option key={s}>{s}</option>)}</Select></Field>
         <Field label="Follow-up notes" className="sm:col-span-2"><Textarea value={f.notes} onChange={set('notes')} placeholder="What was discussed, what to do next" /></Field>
       </div>
+    </>
+  )
+  if (inline) return <>{body}<div className="mt-4">{saveBtn}</div></>
+  return (
+    <Modal open={open} onClose={onClose} wide title={lead ? 'Edit enquiry' : 'Log incoming prospect enquiry'}
+      footer={<><Button onClick={onClose}>Cancel</Button>{saveBtn}</>}>
+      {body}
     </Modal>
   )
 }
 
-function LeadDrawer({ id, leads, demos, teachers, canWrite, onClose, reload, onEdit }: { id: string | null; leads: Row[]; demos: Row[]; teachers: Row[]; canWrite: boolean; onClose: () => void; reload: () => void; onEdit: (l: Row) => void }) {
+function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, reload }: { id: string | null; leads: Row[]; demos: Row[]; teachers: Row[]; languages: Row[]; canWrite: boolean; onClose: () => void; reload: () => void }) {
   const lead = leads.find((l) => l.id === id)
   const nav = useNavigate()
   const confirm = useConfirm()
@@ -114,6 +117,7 @@ function LeadDrawer({ id, leads, demos, teachers, canWrite, onClose, reload, onE
   const active = myDemos.find((d) => ['awaiting_tutor', 'accepted'].includes(d.status))
   const tName = (tid: string) => teachers.find((t) => t.id === tid)?.name ?? 'Tutor'
   const closed = ['converted', 'lost'].includes(lead.stage)
+  const editable = canWrite && !closed
   const wa = waLink(lead.phone)
 
   const addNote = () => run(async () => {
@@ -146,7 +150,8 @@ function LeadDrawer({ id, leads, demos, teachers, canWrite, onClose, reload, onE
   return (
     <Drawer open onClose={onClose} badge={<StatusBadge status={lead.stage} text={stageLabel(lead.stage)} />} title={lead.learner_name}
       subtitle={`Enquiry from ${lead.enquirer_name} via ${lead.source} on ${fmtDate(lead.created_at)}`}>
-      <Section title="Requirements" action={canWrite && !closed ? <Button size="sm" onClick={() => onEdit(lead)}>Edit</Button> : undefined}>
+      <Section title="Requirements">
+        {editable ? <LeadForm key={`${lead.id}-${lead.updated_at}`} inline open lead={lead} languages={languages} leads={leads} onClose={onClose} onSaved={reload} /> : (
         <dl className="grid grid-cols-2 gap-4">
           <KV k="WhatsApp" v={<span className="inline-flex items-center gap-2">{lead.phone || '—'}{wa && <a href={wa} target="_blank" rel="noreferrer" aria-label="Open WhatsApp" className="text-emerald-600"><MessageCircle size={16} /></a>}</span>} />
           <KV k="Email" v={lead.email} />
@@ -156,6 +161,7 @@ function LeadDrawer({ id, leads, demos, teachers, canWrite, onClose, reload, onE
           <KV k="Format" v={GROUP_PREFS.find((g) => g.v === lead.group_preference)?.l} />
           <KV k="Learner time zone" v={noteField(lead.notes, 'Timezone') || 'Asia/Kolkata'} />
         </dl>
+        )}
       </Section>
 
       <Section title="Demo class">
@@ -197,10 +203,10 @@ function LeadDrawer({ id, leads, demos, teachers, canWrite, onClose, reload, onE
         )}
       </Section>
 
-      <Section title="Follow-up notes">
+      {!editable && <Section title="Follow-up notes">
         <pre className="whitespace-pre-wrap font-sans text-sm mb-3">{lead.notes || 'No notes yet.'}</pre>
         {canWrite && <div className="flex gap-2"><Input aria-label="New note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a follow-up note…" /><Button disabled={!note.trim()} loading={busy} onClick={() => void addNote()}>Add</Button></div>}
-      </Section>
+      </Section>}
 
       {can('super_admin') && (
         <Section title="Activity history">
@@ -236,7 +242,7 @@ export default function Leads() {
   const { can } = useAuth()
   const canWrite = can('coordinator')
   const confirm = useConfirm()
-  const [view, setView] = useState<'kanban' | 'roster'>('kanban')
+  const [view, setView] = useState<'kanban' | 'roster'>('roster')
   const [q, setQ] = useState('')
   const [lang, setLang] = useState('')
   const [source, setSource] = useState('')
@@ -315,7 +321,7 @@ export default function Leads() {
 
   return (
     <>
-      <PageHeader title="Leads pipeline" subtitle="Manage enquiries, trial scheduling and conversions before full enrollment. Works even when Runo is offline."
+      <PageHeader title="Leads" subtitle="Manage enquiries, trial scheduling and conversions before full enrollment. Works even when Runo is offline."
         actions={<>
           <div className="inline-flex rounded-xl border border-line bg-white p-1">
             {([['kanban', 'Kanban board', KanbanSquare], ['roster', 'Roster view', List]] as const).map(([v, l, I]) => (
@@ -358,22 +364,45 @@ export default function Leads() {
       ) : (
         <>
           <div className="flex justify-end mb-3"><ExportMenu rows={filtered} cols={exportCols} name="leads" /></div>
-          <DataTable rows={filtered} rowKey={(l) => l.id} onRowClick={(l) => setOpenId(l.id)} empty={<Empty title="No leads match" hint="Try clearing a filter." />}
-            columns={[
-              { h: 'Learner', primary: true, cell: (l) => <div><b>{l.learner_name}</b><div className="text-xs text-ink-soft">via {l.enquirer_name}</div></div> },
-              { h: 'Language', cell: (l) => `${l.languages?.name ?? '—'}${l.level ? ' · ' + l.level : ''}` },
-              { h: 'Phone', cell: (l) => l.phone ?? '—' },
-              { h: 'Source', cell: (l) => l.source },
-              { h: 'Demo', cell: (l) => { const d = nextDemo(l.id); return d ? fmtDate(d.start_at) : '—' } },
-              { h: 'Stage', cell: (l) => <StatusBadge status={l.stage} text={stageLabel(l.stage)} /> },
-              { h: 'Created', cell: (l) => fmtDate(l.created_at) },
-            ]} />
+          {!filtered.length ? <Empty title="No leads match" hint="Try clearing a filter." /> : (
+            <div className="overflow-x-auto scroll-thin border border-line bg-white">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="text-left text-meta uppercase tracking-wider text-ink-soft bg-sand/60">
+                    {['Learner', 'Language', 'Phone', 'Source', 'Demo', 'Stage', 'Created'].map((h) => <th key={h} className="px-3 py-2 font-bold border border-line whitespace-nowrap">{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((l) => {
+                    const d = nextDemo(l.id)
+                    return (
+                      <tr key={l.id} onClick={() => setOpenId(l.id)} className="cursor-pointer hover:bg-brand-50/50">
+                        <td className="px-3 py-2 border border-line"><b>{l.learner_name}</b>{l.enquirer_name !== l.learner_name && <div className="text-xs text-ink-soft">via {l.enquirer_name}</div>}</td>
+                        <td className="px-3 py-2 border border-line whitespace-nowrap">{`${l.languages?.name ?? '—'}${l.level ? ' · ' + l.level : ''}`}</td>
+                        <td className="px-3 py-2 border border-line whitespace-nowrap">{l.phone ?? '—'}</td>
+                        <td className="px-3 py-2 border border-line whitespace-nowrap">{l.source}</td>
+                        <td className="px-3 py-2 border border-line whitespace-nowrap">{d ? fmtDate(d.start_at) : '—'}</td>
+                        <td className="px-1 py-1 border border-line" onClick={(e) => e.stopPropagation()}>
+                          {canWrite && l.stage !== 'converted' ? (
+                            <Select aria-label={`Stage for ${l.learner_name}`} className="min-w-40" value={l.stage} onChange={(e) => void moveStage(l, e.target.value)}>
+                              {LEAD_STAGES.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+                            </Select>
+                          ) : <span className="px-2"><StatusBadge status={l.stage} text={stageLabel(l.stage)} /></span>}
+                        </td>
+                        <td className="px-3 py-2 border border-line whitespace-nowrap">{fmtDate(l.created_at)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
       {data && form && <LeadForm open lead={form.lead} languages={data.languages} leads={data.leads} onClose={() => setForm(null)}
-        onSaved={(id, sched) => { setForm(null); void reload(); if (sched) setOpenId(id) }} />}
-      {data && <LeadDrawer id={openId} leads={data.leads} demos={data.demos} teachers={data.teachers} canWrite={canWrite} onClose={() => setOpenId(null)} reload={() => void reload()} onEdit={(l) => setForm({ lead: l })} />}
+        onSaved={() => { setForm(null); void reload() }} />}
+      {data && <LeadDrawer id={openId} leads={data.leads} demos={data.demos} teachers={data.teachers} languages={data.languages} canWrite={canWrite} onClose={() => setOpenId(null)} reload={() => void reload()} />}
     </>
   )
 }

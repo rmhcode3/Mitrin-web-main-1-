@@ -2,6 +2,26 @@
 
 ## 2026-10-24
 
+### Demos & trials: WhatsApp button
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Demos.tsx` — new "WhatsApp" column after Actions with a "Send via WhatsApp" button that opens wa.me with a prefilled demo message (date/time IST, tutor, meeting link).
+
+### Demos & trials: action dropdown, new filter tabs
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Demos.tsx` — "Details" column renamed "Meeting Link" (decline reason/outcome moved under Status); Actions is now one dropdown (Reschedule/Reassign, Completed, No-show, Enrolled, Dropped, Cancel); Enrolled runs `convert_lead`, Dropped runs `close_leads`; top tabs now Awaiting tutor, Accepted, Rescheduled, Completed, Enrolled, Dropped, All.
+
+### Lead drawer editable, demo scheduler simplified
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Leads.tsx` — Leads opens in Roster view by default; the lead side panel's Requirements section is now an inline editable form with Save changes (admins/coordinators, open leads only); the separate follow-up notes box is hidden then because notes are in the form.
+- **Changed:** `src/components/DemoScheduler.tsx` — removed Length and "Times are in" fields (fixed 30 min, Asia/Kolkata); tutor list split into "Available Tutors" (confirmed/tentative) and "Other Tutors" (everyone else).
+
+### Leads page and Add lead form changes
+**Commit:** Uncommitted
+- **Changed:** `src/components/Shell.tsx` — sidebar item "Leads pipeline" renamed to "Leads".
+- **Changed:** `src/pages/admin/Leads.tsx` — page title "Leads"; Roster view is now a bordered spreadsheet-style table with a Stage dropdown per row (moves the lead via the existing stage logic).
+- **Changed:** `src/pages/admin/Leads.tsx` — Add lead form: "Lead Name" (also saved as learner name), Learner name / Preferred timing / Time zone fields removed, Age is a typed number (required), "Individual or group" renamed "Class format", footer is Cancel + Create Lead (Save & schedule demo removed).
+
+
 ### Sidebar active item uses blue
 **Commit:** Uncommitted
 - **Changed:** `src/components/Shell.tsx` — sidebar/mobile header navy changed to deeper logo blue `#0a2351`; "Log out" (and teacher "Profile") are now compact icon buttons beside the user name instead of full-width buttons. Active item stays orange.
