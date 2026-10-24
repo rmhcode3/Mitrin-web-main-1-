@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #fff7e8;
+  --color-brand-100: #ffecc7;
+  --color-brand-200: #ffd88f;
+  --color-brand-400: #fba833;
+  --color-brand-500: #f89508;
+  --color-brand-600: #d97e00;
+  --color-brand-700: #a95f00;
+  --color-navy: #0a2351; /* logo blue: dark buttons, sidebar */
+  --color-navy-700: #061737;
+  --color-ink: #2a2622;
+  --color-ink-soft: #5f5850;
+  --color-line: #e9e2d8;
+  --color-paper: #fffbf5;
+  --color-sand: #f6f1e9;
+  --font-sans: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-weight-semibold: 500; /* one step lighter than Tailwind default; Poppins runs heavy */
+  --font-weight-bold: 600;
+  --font-weight-extrabold: 700;
+  --text-meta: 0.6875rem; /* 11px compact metadata */
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--color-paper); color: var(--color-ink); font-family: var(--font-sans); font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+:focus-visible:not(input, select, textarea) { outline: 3px solid var(--color-brand-500); outline-offset: 2px; border-radius: 6px; }
+.scroll-thin::-webkit-scrollbar { height: 8px; width: 8px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: #d9cfc0; border-radius: 8px; }
+.scroll-side { scrollbar-width: thin; scrollbar-color: rgb(255 255 255 / 0.2) transparent; }
+.scroll-side::-webkit-scrollbar { width: 4px; }
+.scroll-side::-webkit-scrollbar-track { background: transparent; }
+.scroll-side::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.2); border-radius: 8px; }
+@keyframes slide-in { from { transform: translateX(24px); opacity: 0 } to { transform: none; opacity: 1 } }
+@keyframes pop { from { transform: scale(.97); opacity: 0 } to { transform: none; opacity: 1 } }
+.anim-slide { animation: slide-in .18s ease-out; }
+.anim-pop { animation: pop .15s ease-out; }
