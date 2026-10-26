@@ -396,7 +396,7 @@ export default function Leads() {
                         <td className="px-1 py-1 border border-line whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           {canWrite ? (
                             <select aria-label={`Class format for ${l.learner_name}`} value={l.group_preference} onChange={(e) => void setFormat(l, e.target.value)}
-                              className="min-h-8 rounded-lg border border-line bg-white px-2 text-sm cursor-pointer">
+                              className="min-h-8 border-0 bg-transparent px-2 text-sm cursor-pointer">
                               {GROUP_PREFS.map((g) => <option key={g.v} value={g.v}>{g.l}</option>)}
                             </select>
                           ) : <span className="px-2">{formatLabel(l.group_preference)}</span>}
