@@ -5,7 +5,7 @@ import { select, unwrap, type Row } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { useAction, useAsync } from '../../lib/hooks'
-import { addDays, fmtClock, fmtDate, fmtDateTime, inr, label, mondayOf, todayIn, WEEKDAYS } from '../../lib/format'
+import { addDays, digits, fmtClock, fmtDate, fmtDateTime, inr, label, mondayOf, todayIn, WEEKDAYS } from '../../lib/format'
 import { Badge, Button, Card, Drawer, Empty, ErrorBox, Field, Input, KV, Modal, Notice, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Tabs, Textarea, useConfirm } from '../../components/ui'
 
 type Tab = 'active' | 'pending' | 'inactive' | 'requests'
@@ -159,9 +159,6 @@ function TeacherProfile({ t, data, coord, onClose, reload, onApprove, onReject, 
   const { can } = useAuth()
   const p = t.profiles as Row
   const [tab, setTab] = useState<PTab>('overview')
-  const [editLang, setEditLang] = useState(false)
-  const [langs, setLangs] = useState((t.languages as string[]).join(', '))
-  const [notes, setNotes] = useState(t.admin_notes ?? '')
   const { busy, run } = useAction()
 
   const extra = useAsync(async () => {
@@ -192,26 +189,15 @@ function TeacherProfile({ t, data, coord, onClose, reload, onApprove, onReject, 
       {tab === 'overview' && (
         <>
           <Section title="Contact & profile">
-            <dl className="grid sm:grid-cols-2 gap-4">
-              <KV k="Email" v={<a className="inline-flex gap-1.5 items-center" href={`mailto:${p.email}`}><Mail size={14} />{p.email}</a>} /><KV k="Phone" v={p.phone ? <span className="inline-flex gap-1.5 items-center"><Phone size={14} />{p.phone}</span> : null} />
-              <KV k="Experience" v={t.experience_years != null ? `${t.experience_years} years` : null} /><KV k="Time zone" v={t.timezone} />
-              <KV k="Qualifications" v={t.qualifications} /><KV k="Approved" v={t.approved_at ? fmtDate(t.approved_at) : null} />
-            </dl>
+            {coord ? <TeacherEditForm key={`${t.user_id}-${t.updated_at}-${p.updated_at}`} t={t} onSaved={reload} /> : (
+              <dl className="grid sm:grid-cols-2 gap-4">
+                <KV k="Email" v={<a className="inline-flex gap-1.5 items-center" href={`mailto:${p.email}`}><Mail size={14} />{p.email}</a>} /><KV k="Phone" v={p.phone ? <span className="inline-flex gap-1.5 items-center"><Phone size={14} />{p.phone}</span> : null} />
+                <KV k="Experience" v={t.experience_years != null ? `${t.experience_years} years` : null} /><KV k="Approved" v={t.approved_at ? fmtDate(t.approved_at) : null} />
+                <KV k="Qualifications" v={t.qualifications} />
+                <KV k="Languages taught" v={(t.languages as string[]).join(', ') || null} />
+              </dl>
+            )}
           </Section>
-          {coord && (
-            <Section title="Languages taught" action={!editLang ? <Button size="sm" onClick={() => setEditLang(true)}>Edit</Button> : undefined}>
-              {editLang ? (
-                <div className="flex gap-2"><Input aria-label="Languages" value={langs} onChange={(e) => setLangs(e.target.value)} placeholder="Comma separated: Spanish, German" />
-                  <Button variant="primary" loading={busy} onClick={() => void run(async () => { await unwrap(supabase.from('teacher_profiles').update({ languages: langs.split(',').map((x) => x.trim()).filter(Boolean) }).eq('user_id', t.user_id)); setEditLang(false); reload() }, 'Languages updated')}>Save</Button></div>
-              ) : <div className="flex flex-wrap gap-1.5">{(t.languages as string[]).map((l) => <Badge key={l} tone="orange">{l}</Badge>)}</div>}
-            </Section>
-          )}
-          {coord && (
-            <Section title="Admin notes (private)">
-              <Textarea aria-label="Admin notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
-              <Button className="mt-2" size="sm" loading={busy} disabled={notes === (t.admin_notes ?? '')} onClick={() => void run(async () => { await unwrap(supabase.from('teacher_profiles').update({ admin_notes: notes.trim() || null }).eq('user_id', t.user_id)); reload() }, 'Notes saved')}>Save notes</Button>
-            </Section>
-          )}
           {coord && (
             <div className="flex flex-wrap gap-2">
               {t.approval_status === 'pending_review' && <><Button variant="primary" onClick={() => onApprove(t)}><UserCheck size={15} /> Approve</Button><Button onClick={() => onReject(t)}>Reject</Button></>}
@@ -263,5 +249,40 @@ function TeacherProfile({ t, data, coord, onClose, reload, onApprove, onReject, 
         </Section>
       )}
     </Drawer>
+  )
+}
+
+function TeacherEditForm({ t, onSaved }: { t: Row; onSaved: () => void }) {
+  const p = t.profiles as Row
+  const [f, setF] = useState({ full_name: p.full_name ?? '', phone: p.phone ?? '', experience_years: t.experience_years != null ? String(t.experience_years) : '', qualifications: t.qualifications ?? '', languages: (t.languages as string[]).join(', '), admin_notes: t.admin_notes ?? '' })
+  const [err, setErr] = useState('')
+  const { busy, run } = useAction()
+  const s = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
+  const save = () => run(async () => {
+    setErr('')
+    if (f.full_name.trim().length < 2) return setErr('Enter the tutor’s name.')
+    if (f.phone && !/^[0-9]{7,15}$/.test(digits(f.phone))) return setErr('Phone must be 7–15 digits.')
+    if (f.experience_years !== '' && !/^\d{1,2}$/.test(f.experience_years.trim())) return setErr('Experience must be a whole number of years.')
+    await unwrap(supabase.from('profiles').update({ full_name: f.full_name.trim(), phone: f.phone ? digits(f.phone) : null }).eq('id', t.user_id))
+    await unwrap(supabase.from('teacher_profiles').update({
+      experience_years: f.experience_years === '' ? null : Number(f.experience_years), qualifications: f.qualifications.trim() || null,
+      languages: f.languages.split(',').map((x) => x.trim()).filter(Boolean), admin_notes: f.admin_notes.trim() || null,
+    }).eq('user_id', t.user_id))
+    onSaved()
+  }, 'Tutor details saved')
+  return (
+    <>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Field label="Name" required><Input value={f.full_name} onChange={s('full_name')} /></Field>
+        <Field label="Email" hint="Login email. It cannot be changed here."><Input value={p.email ?? ''} disabled readOnly /></Field>
+        <Field label="Phone"><Input inputMode="tel" value={f.phone} onChange={s('phone')} /></Field>
+        <Field label="Experience (years)"><Input inputMode="numeric" value={f.experience_years} onChange={s('experience_years')} /></Field>
+        <Field label="Languages taught" hint="Comma separated, for example: English, Tamil" className="sm:col-span-2"><Input value={f.languages} onChange={s('languages')} /></Field>
+        <Field label="Qualifications" className="sm:col-span-2"><Textarea value={f.qualifications} onChange={s('qualifications')} /></Field>
+        <Field label="Admin notes (private)" className="sm:col-span-2"><Textarea value={f.admin_notes} onChange={s('admin_notes')} /></Field>
+      </div>
+      {err && <p role="alert" className="text-sm text-red-600 mt-3">{err}</p>}
+      <div className="mt-4"><Button variant="primary" loading={busy} onClick={() => void save()}>Save changes</Button></div>
+    </>
   )
 }

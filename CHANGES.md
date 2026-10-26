@@ -2,6 +2,10 @@
 
 ## 2026-10-26
 
+### Teacher roster: editable tutor popup, time zone removed
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Teachers.tsx` — Overview of the tutor popup is one inline editable form (name, phone, experience, languages, qualifications, private admin notes) with Save changes for coordinators/admins; Time zone removed from Contact & profile; the separate Languages and Admin notes sections are merged into the form. Email stays read-only (login identity).
+
 ### Class format column in Leads roster
 **Commit:** Uncommitted
 - **Changed:** `src/pages/admin/Leads.tsx` — new "Class format" column (Individual / Group / Either) in the Roster table and in the CSV/Excel export; coordinators can change it inline at any stage, including Converted and Lost.
