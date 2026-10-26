@@ -2,6 +2,11 @@
 
 ## 2026-10-24
 
+### Enrollment: hints for Awaiting tutor status
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/StudentDrawer.tsx` — hints in Course & teacher when no tutor is assigned or the tutor has not accepted yet
+- **Changed:** `src/pages/admin/StudentDrawer.tsx` — new "Course information" box (shown once classes are allocated): course, allocated/booked/delivered/remaining, allocation lines, and class timings (upcoming booked classes) once the tutor has accepted..
+
 ### Demo scheduler: contact tutors who are not free
 **Commit:** Uncommitted
 - **Changed:** `src/components/DemoScheduler.tsx` — "Other Tutors" column has a note and a "Contact on WhatsApp" link per tutor (prefilled request for the chosen date/time, IST) so the admin can ask non-available tutors to cover.

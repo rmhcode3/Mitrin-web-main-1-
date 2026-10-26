@@ -107,8 +107,25 @@ export function StudentDrawer({ enrollmentId, teachers, onClose, onChanged }: { 
                 {!coord && <><KV k="Term" v={e.term_start || e.term_end ? `${fmtDate(e.term_start)} → ${fmtDate(e.term_end)}` : 'Not set'} /><KV k="Agreed classes" v={e.agreed_classes} />
                 <KV k="Preferred timing" v={e.preferred_timing} /><KV k="Meeting link" v={e.meeting_link ? <a className="text-brand-700 underline break-all" href={e.meeting_link} target="_blank" rel="noreferrer">{e.meeting_link}</a> : null} /></>}
               </dl>
+              {!e.primary_teacher_id && !['completed', 'withdrawn'].includes(e.status) && <p className="text-sm text-amber-700 mt-3">No tutor yet. Assign a tutor; classes can be booked once the tutor accepts.</p>}
+              {e.primary_teacher_id && e.assignment_status === 'awaiting_tutor' && <p className="text-sm text-amber-700 mt-3">Waiting for {tName(e.primary_teacher_id)} to accept. The status becomes Active once they do.</p>}
               {e.assignment_status === 'declined' && <p className="text-sm text-red-700 mt-3">The tutor declined. Assign another tutor to continue.</p>}
             </Section>
+            {(bal?.allocated ?? 0) > 0 && (
+              <Section title="Course information">
+                <dl className="grid sm:grid-cols-2 gap-4">
+                  <KV k="Course" v={`${e.languages?.name ?? '—'}${stu.level ? ` · ${stu.level}` : ''}`} />
+                  <KV k="Classes allocated" v={bal.allocated} />
+                  <KV k="Booked" v={bal.reserved ?? 0} /><KV k="Delivered" v={bal.fulfilled ?? 0} />
+                  <KV k="Remaining" v={remaining} /><KV k="Preferred timing" v={e.preferred_timing} />
+                </dl>
+                {!!moves.length && <ul className="mt-3 text-sm divide-y divide-line">{moves.slice(0, 5).map((m) => <li key={m.id} className="py-1.5 flex justify-between gap-3"><span><b>+{m.quantity}</b> classes · {m.reason}</span><span className="text-xs text-ink-soft">{fmtDate(m.created_at)}</span></li>)}</ul>}
+                <p className="font-bold text-sm mt-4 mb-1.5">Class timing</p>
+                {e.assignment_status !== 'accepted' ? <p className="text-sm text-ink-soft">Class timings appear here once the tutor accepts.</p>
+                  : !upcoming.length ? <p className="text-sm text-ink-soft">{tName(e.primary_teacher_id)} accepted. Class times appear here once they are booked.</p>
+                  : <ul className="text-sm divide-y divide-line">{upcoming.slice(0, 8).map((p) => <li key={p.sessions.id} className="py-1.5 flex flex-wrap justify-between gap-2"><span><b>{fmtDateTime(p.sessions.start_at)}</b> <span className="text-ink-soft">with {tName(p.sessions.teacher_id)}</span></span>{p.sessions.meeting_link && <a className="text-brand-700 underline" href={p.sessions.meeting_link} target="_blank" rel="noreferrer">Join link</a>}</li>)}</ul>}
+              </Section>
+            )}
             {d.data.siblings.length > 1 && <Section title="Other courses for this learner"><div className="flex flex-wrap gap-2">{d.data.siblings.filter((s) => s.id !== e.id).map((s) => <Badge key={s.id}>{one<Row>(s.languages)?.name} · {label[s.status]}</Badge>)}</div></Section>}
             {coord && !['completed', 'withdrawn'].includes(e.status) && (
               <Section title="Enrollment actions">
