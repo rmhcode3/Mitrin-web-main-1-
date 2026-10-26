@@ -2,6 +2,25 @@
 
 ## 2026-10-24
 
+### Date range filter (Leads, Demos, Enrollment, Availability matrix) and Excel-style tables
+**Commit:** Uncommitted
+- **Added:** `src/components/DateRange.tsx` — `useDateRange` + `DateRangeFilter` dropdown (All, Yesterday, Today, This Week, This Month, Custom with from/to dates); India time; the selected range is shown beside the dropdown.
+- **Changed:** `src/pages/admin/Leads.tsx` (created date; replaces the old Created from/to fields), `Demos.tsx` (demo date; bordered table), `Students.tsx` (enrollment created date) — dropdown above the table.
+- **Changed:** `src/pages/admin/AvailabilityMatrix.tsx` — week prev/next buttons replaced by the dropdown; columns follow the range (All = 4 weeks from this Monday, custom capped at 62 days); bordered Excel-style table.
+
+### Leads and Demos polish
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Leads.tsx` — Stage dropdown in Roster is colour-coded like the badges; new derived stage "Demo Accepted" (a Demo Scheduled lead whose tutor accepted the demo; no DB change); Reschedule/Cancel/no-show demo buttons are orange.
+- **Changed:** `src/components/DemoScheduler.tsx` — past dates disabled, start time labelled India time (IST) and cannot be earlier than now when date is today; Find available tutors is orange.
+- **Changed:** `src/components/ui.tsx`, `src/components/scheduling.tsx` — new `teal` tone, `toneClass` helper.
+- **Changed:** `src/pages/admin/Demos.tsx` — "All" tab is first.
+
+### Enrollment page (was Student roster)
+**Commit:** Uncommitted
+- **Changed:** `src/components/Shell.tsx`, `src/pages/admin/Students.tsx` — "Student roster" renamed "Enrollment"; list uses the gridlines table.
+- **Changed:** `src/components/ui.tsx` — `DataTable` gets optional `grid` prop (bordered, spreadsheet look).
+- **Changed:** `src/pages/admin/StudentDrawer.tsx` — Overview is now an inline editable form (lead + course details, Save changes) instead of the Edit modal; "Learner & contact" renamed "Lead"; learner time zone removed from the box and form.
+
 ### Demos & trials: WhatsApp button
 **Commit:** Uncommitted
 - **Changed:** `src/pages/admin/Demos.tsx` — new "WhatsApp" column after Actions with a "Send via WhatsApp" button that opens wa.me with a prefilled demo message (date/time IST, tutor, meeting link).

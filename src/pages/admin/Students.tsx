@@ -9,6 +9,7 @@ import { AGE_GROUPS, LEVELS, loadLanguages } from '../../lib/domain'
 import { TIMEZONES, digits, fmtDateTime, label } from '../../lib/format'
 import { Badge, Button, DataTable, Empty, ErrorBox, ExportMenu, Field, Input, Modal, PageHeader, SearchBox, Select, Spinner, StatusBadge } from '../../components/ui'
 import { StudentDrawer } from './StudentDrawer'
+import { DateRangeFilter, useDateRange } from '../../components/DateRange'
 
 const one = <T,>(x: T | T[] | null | undefined): T | undefined => (Array.isArray(x) ? x[0] : x ?? undefined)
 
@@ -55,6 +56,7 @@ export default function Students() {
   const [sp, setSp] = useSearchParams()
   const openId = sp.get('open')
   const [q, setQ] = useState('')
+  const range = useDateRange()
   const [status, setStatus] = useState('')
   const [lang, setLang] = useState('')
   const [tutor, setTutor] = useState('')
@@ -87,9 +89,10 @@ export default function Students() {
       if (tutor && e.primary_teacher_id !== tutor) return false
       if (pay && data.ps.get(e.id)?.state !== pay) return false
       if (low && !((data.bal.get(e.id)?.remaining ?? 0) <= lowAt && ['active', 'pending_completion'].includes(e.status))) return false
+      if (!range.inRange(e.created_at)) return false
       return true
     })
-  }, [data, q, status, lang, tutor, pay, low, lowAt])
+  }, [data, q, status, lang, tutor, pay, low, lowAt, range.from, range.to])
 
   const tName = (id: string | null) => data?.teachers.find((t) => t.id === id)?.name ?? '—'
   const cols = [
@@ -100,7 +103,7 @@ export default function Students() {
 
   return (
     <>
-      <PageHeader title="Student roster" subtitle="One row per course enrollment. A learner can have several courses, each with its own classes, tutor and calendar."
+      <PageHeader title="Enrollment" subtitle="One row per course enrollment. A learner can have several courses, each with its own classes, tutor and calendar."
         actions={<><ExportMenu name="students" rows={rows} cols={cols} />{coord && <Button variant="dark" onClick={() => setAdding(true)}><Plus size={16} /> Add student</Button>}</>} />
       <div className="flex flex-wrap gap-3 mb-4 items-center">
         <SearchBox className="flex-1 min-w-52" value={q} onChange={setQ} placeholder="Search name, parent, phone or language…" />
@@ -111,8 +114,10 @@ export default function Students() {
         <label className="inline-flex items-center gap-2 text-sm min-h-11"><input type="checkbox" className="accent-brand-500 h-4 w-4" checked={low} onChange={(e) => setLow(e.target.checked)} /> Low classes (≤{lowAt})</label>
       </div>
 
+      <div className="mb-4"><DateRangeFilter range={range} /></div>
+
       {loading && !data ? <Spinner /> : error ? <ErrorBox message={error} onRetry={reload} /> : (
-        <DataTable rows={rows} rowKey={(e) => e.id} onRowClick={(e) => setSp({ open: e.id })} empty={<Empty title="No students match" hint="Convert an enquiry or add a student to get started." />}
+        <DataTable grid rows={rows} rowKey={(e) => e.id} onRowClick={(e) => setSp({ open: e.id })} empty={<Empty title="No students match" hint="Convert an enquiry or add a student to get started." />}
           columns={[
             { h: 'Student', primary: true, cell: (e) => <div><b>{e.students.full_name}</b><div className="text-xs text-ink-soft">{one<Row>(e.students.student_contacts)?.parent_name ?? ''}</div></div> },
             { h: 'Course', cell: (e) => <span>{e.languages?.name}{e.students.level && <span className="text-ink-soft"> · {e.students.level}</span>}</span> },

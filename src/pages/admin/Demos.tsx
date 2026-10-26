@@ -8,6 +8,7 @@ import { useAction, useAsync, useSetting } from '../../lib/hooks'
 import { loadApprovedTeachers, noteField, waLink } from '../../lib/domain'
 import { fmtDateTime, label } from '../../lib/format'
 import { useToast } from '../../lib/toast'
+import { DateRangeFilter, useDateRange } from '../../components/DateRange'
 import { DemoScheduler } from '../../components/DemoScheduler'
 import { Button, DataTable, Empty, ErrorBox, ExportMenu, Input, Modal, PageHeader, SearchBox, Select, Spinner, StatusBadge, Tabs, useConfirm } from '../../components/ui'
 
@@ -22,6 +23,7 @@ export default function Demos() {
   const followup = useSetting<number>('demo.followup_hours', 24)
   const [tab, setTab] = useState<Tab>('awaiting')
   const [q, setQ] = useState('')
+  const range = useDateRange()
   const [tutor, setTutor] = useState('')
   const [resched, setResched] = useState<Row | null>(null)
   const [outcomeFor, setOutcomeFor] = useState<{ d: Row; status: string } | null>(null)
@@ -39,9 +41,9 @@ export default function Demos() {
     const s = q.trim().toLowerCase()
     return data.demos.filter((d) => {
       const g = { awaiting: d.status === 'awaiting_tutor', upcoming: d.status === 'accepted', rescheduled: d.status === 'rescheduled', completed: d.status === 'completed', enrolled: d.leads?.stage === 'converted', dropped: d.leads?.stage === 'lost', all: true }[tab]
-      return g && (!tutor || d.teacher_id === tutor) && (!s || [d.learner_name, d.leads?.enquirer_name, d.leads?.phone].some((v) => String(v ?? '').toLowerCase().includes(s)))
+      return g && range.inRange(d.start_at) && (!tutor || d.teacher_id === tutor) && (!s || [d.learner_name, d.leads?.enquirer_name, d.leads?.phone].some((v) => String(v ?? '').toLowerCase().includes(s)))
     })
-  }, [data, tab, q, tutor])
+  }, [data, tab, q, tutor, range.from, range.to])
 
   const count = (f: (d: Row) => boolean) => data?.demos.filter(f).length ?? 0
   const stale = (d: Row) => d.status === 'awaiting_tutor' && Date.now() - +new Date(d.created_at) > followup * 3600_000
@@ -91,19 +93,21 @@ export default function Demos() {
           { header: 'Status', value: (d: Row) => label[d.status] }, { header: 'Outcome', value: (d: Row) => d.outcome }, { header: 'Decline reason', value: (d: Row) => d.decline_reason }]} />} />
       <div className="mb-4">
         <Tabs<Tab> value={tab} onChange={setTab} tabs={[
-          { id: 'awaiting', label: 'Awaiting tutor', count: count((d) => d.status === 'awaiting_tutor') }, { id: 'upcoming', label: 'Accepted', count: count((d) => d.status === 'accepted') },
+          { id: 'all', label: 'All' }, { id: 'awaiting', label: 'Awaiting tutor', count: count((d) => d.status === 'awaiting_tutor') }, { id: 'upcoming', label: 'Accepted', count: count((d) => d.status === 'accepted') },
           { id: 'rescheduled', label: 'Rescheduled', count: count((d) => d.status === 'rescheduled') },
           { id: 'completed', label: 'Completed', count: count((d) => d.status === 'completed') },
           { id: 'enrolled', label: 'Enrolled', count: count((d) => d.leads?.stage === 'converted') },
-          { id: 'dropped', label: 'Dropped', count: count((d) => d.leads?.stage === 'lost') }, { id: 'all', label: 'All' }]} />
+          { id: 'dropped', label: 'Dropped', count: count((d) => d.leads?.stage === 'lost') }]} />
       </div>
       <div className="flex flex-wrap gap-3 mb-4">
         <SearchBox className="flex-1 min-w-52" value={q} onChange={setQ} placeholder="Search learner, enquirer or phone…" />
         <Select aria-label="Tutor" className="w-52" value={tutor} onChange={(e) => setTutor(e.target.value)}><option value="">All tutors</option>{data?.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select>
       </div>
 
+      <div className="mb-4"><DateRangeFilter range={range} /></div>
+
       {loading && !data ? <Spinner /> : error ? <ErrorBox message={error} onRetry={reload} /> : (
-        <DataTable rows={rows} rowKey={(d) => d.id} empty={<Empty title="No demos here" hint="Schedule demos from the Leads pipeline." />}
+        <DataTable grid rows={rows} rowKey={(d) => d.id} empty={<Empty title="No demos here" hint="Schedule demos from the Leads pipeline." />}
           columns={[
             { h: 'Learner', primary: true, cell: (d) => <div><b>{d.learner_name}</b><div className="text-xs text-ink-soft">{d.leads?.languages?.name} · attempt {d.attempt}</div></div> },
             { h: 'Tutor', cell: (d) => tName(d.teacher_id) },

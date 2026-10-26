@@ -7,10 +7,11 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { useAction, useAsync } from '../../lib/hooks'
 import { GROUP_PREFS, LEVELS, SOURCES, loadApprovedTeachers, loadLanguages, noteField, waLink } from '../../lib/domain'
-import { LEAD_STAGES, digits, fmtDate, fmtDateTime, label, stageLabel } from '../../lib/format'
+import { digits, fmtDate, fmtDateTime, label } from '../../lib/format'
 import { DemoScheduler } from '../../components/DemoScheduler'
-import { Badge, Button, Card, Drawer, Empty, ErrorBox, ExportMenu, Field, Input, KV, Modal, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Textarea, cx, useConfirm } from '../../components/ui'
+import { Badge, Button, Card, Drawer, Empty, ErrorBox, ExportMenu, Field, Input, KV, Modal, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Textarea, cx, toneClass, useConfirm } from '../../components/ui'
 import { useToast } from '../../lib/toast'
+import { DateRangeFilter, useDateRange } from '../../components/DateRange'
 
 const schema = z.object({
   enquirer_name: z.string().trim().min(2, 'Enter the lead name'),
@@ -19,6 +20,13 @@ const schema = z.object({
   email: z.string().trim().refine((v) => v === '' || /^\S+@\S+\.\S+$/.test(v), 'Enter a valid email or leave blank'),
   language_id: z.string().min(1, 'Choose a language'),
 })
+
+// "Demo Accepted" is derived: a Demo Scheduled lead whose demo the tutor has accepted (see the loader in Leads()).
+const STAGES = [
+  { v: 'new', l: 'New Lead' }, { v: 'contacted', l: 'Contacted' }, { v: 'demo_scheduled', l: 'Demo Scheduled' }, { v: 'demo_accepted', l: 'Demo Accepted' },
+  { v: 'demo_done', l: 'Demo Completed' }, { v: 'converted', l: 'Converted' }, { v: 'lost', l: 'Lost Lead' },
+] as const
+const stageLabel = (v: string) => STAGES.find((s) => s.v === v)?.l ?? v
 
 const blank = { enquirer_name: '', learner_name: '', phone: '', email: '', language_id: '', level: 'Beginner', age_group: '', preferred_timing: '', group_preference: 'either', source: 'Call', notes: '', tz: 'Asia/Kolkata' }
 
@@ -37,7 +45,7 @@ function StageMenu({ lead, onPick }: { lead: Row; onPick: (stage: string) => voi
           <div className="fixed inset-0 z-40" onClick={close} />
           <div role="menu" style={{ left: pos.left, top: pos.top }} className="fixed z-50 w-44 rounded-xl border border-line bg-white p-1.5 shadow-lg">
             <p className="px-2.5 py-1.5 text-xs text-ink-soft">Move stage</p>
-            {LEAD_STAGES.map((s) => (
+            {STAGES.map((s) => (
               <button key={s.v} role="menuitem" onClick={() => { close(); if (s.v !== lead.stage) onPick(s.v) }}
                 className={cx('w-full text-left rounded-lg px-2.5 min-h-8 text-xs font-medium', s.v === lead.stage ? 'bg-sand text-ink' : 'text-ink-soft hover:bg-sand/70')}>{s.l}</button>
             ))}
@@ -176,8 +184,8 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
               {d.meeting_link && <a className="text-brand-700 underline break-all" href={d.meeting_link} target="_blank" rel="noreferrer">{d.meeting_link}</a>}
               {canWrite && ['awaiting_tutor', 'accepted', 'declined'].includes(d.status) && !closed && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => setMode({ replace: d.id })}><CalendarDays size={14} /> Reschedule / change tutor</Button>
-                  {d.status !== 'declined' && <Button size="sm" onClick={() => void run(async () => { await rpc('record_demo_outcome', { p_demo: d.id, p_status: 'cancelled', p_outcome: outcome || null }); reload() }, 'Demo cancelled')}>Cancel demo</Button>}
+                  <Button size="sm" variant="primary" onClick={() => setMode({ replace: d.id })}><CalendarDays size={14} /> Reschedule / change tutor</Button>
+                  {d.status !== 'declined' && <Button size="sm" variant="primary" onClick={() => void run(async () => { await rpc('record_demo_outcome', { p_demo: d.id, p_status: 'cancelled', p_outcome: outcome || null }); reload() }, 'Demo cancelled')}>Cancel demo</Button>}
                 </div>
               )}
               {canWrite && d.status === 'accepted' && (
@@ -185,8 +193,8 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
                   <Input aria-label="Outcome note" placeholder="Outcome note (optional)" value={outcome} onChange={(e) => setOutcome(e.target.value)} />
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="primary" disabled={busy} onClick={() => void outcomeFor(d, 'completed')}>Completed</Button>
-                    <Button size="sm" disabled={busy} onClick={() => void outcomeFor(d, 'student_no_show')}>Student no-show</Button>
-                    <Button size="sm" disabled={busy} onClick={() => void outcomeFor(d, 'tutor_no_show')}>Tutor no-show</Button>
+                    <Button size="sm" variant="primary" disabled={busy} onClick={() => void outcomeFor(d, 'student_no_show')}>Student no-show</Button>
+                    <Button size="sm" variant="primary" disabled={busy} onClick={() => void outcomeFor(d, 'tutor_no_show')}>Tutor no-show</Button>
                   </div>
                 </div>
               )}
@@ -248,8 +256,7 @@ export default function Leads() {
   const [source, setSource] = useState('')
   const [stage, setStage] = useState('')
   const [tutor, setTutor] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
+  const range = useDateRange()
   const [showFilters, setShowFilters] = useState(false)
   const [form, setForm] = useState<{ lead: Row | null } | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -261,7 +268,8 @@ export default function Leads() {
       select('demos', '*', (x) => x.order('attempt')),
       loadApprovedTeachers(), loadLanguages(),
     ])
-    return { leads, demos, teachers, languages }
+    const accepted = new Set(demos.filter((d) => d.status === 'accepted').map((d) => d.lead_id))
+    return { leads: leads.map((l) => (l.stage === 'demo_scheduled' && accepted.has(l.id) ? { ...l, stage: 'demo_accepted' } : l)), demos, teachers, languages }
   })
 
   const filtered = useMemo(() => {
@@ -273,16 +281,15 @@ export default function Leads() {
       if (source && l.source !== source) return false
       if (stage && l.stage !== stage) return false
       if (tutor && !data.demos.some((d) => d.lead_id === l.id && d.teacher_id === tutor)) return false
-      const day = String(l.created_at).slice(0, 10)
-      return !(from && day < from) && !(to && day > to)
+      return range.inRange(l.created_at)
     })
-  }, [data, q, lang, source, stage, tutor, from, to])
+  }, [data, q, lang, source, stage, tutor, range.from, range.to])
 
   const nextDemo = (id: string) => data?.demos.filter((d) => d.lead_id === id && ['awaiting_tutor', 'accepted'].includes(d.status)).sort((a, b) => +new Date(a.start_at) - +new Date(b.start_at))[0]
 
   const moveStage = async (l: Row, to: string) => {
     if (to === l.stage) return
-    if (to === 'demo_scheduled' || to === 'demo_done' || to === 'converted') { setOpenId(l.id); return }
+    if (to === 'demo_scheduled' || to === 'demo_accepted' || to === 'demo_done' || to === 'converted') { setOpenId(l.id); return }
     if (to === 'lost') {
       const c = await confirm({ title: 'Mark as lost', body: <p>Pending demos for this enquiry will be cancelled.</p>, reason: 'Why was this lead lost?', danger: true, confirmText: 'Mark lost' })
       if (c.ok) await run(async () => { await rpc('close_leads', { p_ids: [l.id], p_reason: c.reason }); await reload() }, 'Marked as lost')
@@ -339,23 +346,23 @@ export default function Leads() {
           <span className="text-xs text-ink-soft font-mono ml-auto">Total prospects: {filtered.length} lead{filtered.length === 1 ? '' : 's'}</span>
         </div>
         {showFilters && (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-4 pt-4 border-t border-line">
-            <Field label="Stage"><Select value={stage} onChange={(e) => setStage(e.target.value)}><option value="">Any stage</option>{LEAD_STAGES.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}</Select></Field>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4 pt-4 border-t border-line">
+            <Field label="Stage"><Select value={stage} onChange={(e) => setStage(e.target.value)}><option value="">Any stage</option>{STAGES.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}</Select></Field>
             <Field label="Source"><Select value={source} onChange={(e) => setSource(e.target.value)}><option value="">Any source</option>{[...new Set([...SOURCES, ...(data?.leads.map((l) => l.source) ?? [])])].map((s) => <option key={s}>{s}</option>)}</Select></Field>
             <Field label="Demo tutor"><Select value={tutor} onChange={(e) => setTutor(e.target.value)}><option value="">Any tutor</option>{data?.teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select></Field>
-            <Field label="Created from"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-            <Field label="Created to"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
           </div>
         )}
       </Card>
 
+      <div className="mb-4"><DateRangeFilter range={range} /></div>
+
       {loading && !data ? <Spinner /> : error ? <ErrorBox message={error} onRetry={reload} /> : !data ? null : view === 'kanban' ? (
         <div className="flex gap-4 overflow-x-auto scroll-thin pb-4 snap-x -mx-4 px-4 sm:mx-0 sm:px-0">
-          {LEAD_STAGES.map((s) => {
+          {STAGES.map((s) => {
             const items = filtered.filter((l) => l.stage === s.v)
             return (
               <div key={s.v} className="snap-start shrink-0 w-[272px] rounded-2xl bg-sand/60 border border-line p-3 min-h-64">
-                <div className="flex items-center justify-between mb-3"><Badge tone={({ new: 'blue', contacted: 'yellow', demo_scheduled: 'purple', demo_done: 'orange', converted: 'green', lost: 'gray' } as const)[s.v]}>{s.l}</Badge><span className="text-xs font-bold text-ink-soft">{items.length}</span></div>
+                <div className="flex items-center justify-between mb-3"><Badge tone={({ new: 'blue', contacted: 'yellow', demo_scheduled: 'purple', demo_accepted: 'teal', demo_done: 'orange', converted: 'green', lost: 'gray' } as const)[s.v]}>{s.l}</Badge><span className="text-xs font-bold text-ink-soft">{items.length}</span></div>
                 <div className="space-y-3">{items.map((l) => <Card1 key={l.id} l={l} />)}{!items.length && <p className="text-xs text-ink-soft text-center py-6">No leads</p>}</div>
               </div>
             )
@@ -384,9 +391,10 @@ export default function Leads() {
                         <td className="px-3 py-2 border border-line whitespace-nowrap">{d ? fmtDate(d.start_at) : '—'}</td>
                         <td className="px-1 py-1 border border-line" onClick={(e) => e.stopPropagation()}>
                           {canWrite && l.stage !== 'converted' ? (
-                            <Select aria-label={`Stage for ${l.learner_name}`} className="min-w-40" value={l.stage} onChange={(e) => void moveStage(l, e.target.value)}>
-                              {LEAD_STAGES.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
-                            </Select>
+                            <select aria-label={`Stage for ${l.learner_name}`} value={l.stage} onChange={(e) => void moveStage(l, e.target.value)}
+                              className={cx('min-w-40 min-h-8 rounded-full border px-3 text-xs font-bold uppercase tracking-wide cursor-pointer', toneClass(l.stage))}>
+                              {STAGES.map((s) => <option key={s.v} value={s.v} className={toneClass(s.v)}>{s.l}</option>)}
+                            </select>
                           ) : <span className="px-2"><StatusBadge status={l.stage} text={stageLabel(l.stage)} /></span>}
                         </td>
                         <td className="px-3 py-2 border border-line whitespace-nowrap">{fmtDate(l.created_at)}</td>

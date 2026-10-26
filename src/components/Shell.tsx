@@ -17,7 +17,7 @@ export const ADMIN_NAV: NavGroup[] = [
       { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
       { to: '/admin/leads', label: 'Leads', icon: Target, perms: ['coordinator'] },
       { to: '/admin/demos', label: 'Demos & trials', icon: CalendarCheck, perms: ['coordinator'] },
-      { to: '/admin/students', label: 'Student roster', icon: GraduationCap, perms: ['coordinator', 'finance'] },
+      { to: '/admin/students', label: 'Enrollment', icon: GraduationCap, perms: ['coordinator', 'finance'] },
       { to: '/admin/teachers', label: 'Teacher roster', icon: Users, perms: ['coordinator'] },
       { to: '/admin/availability', label: 'Availability matrix', icon: Grid3x3, perms: ['coordinator'] },
       { to: '/admin/slot-finder', label: 'Tutor slot finder', icon: SearchCheck, perms: ['coordinator'] },

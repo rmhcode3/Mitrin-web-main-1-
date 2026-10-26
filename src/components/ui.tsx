@@ -58,7 +58,7 @@ function FieldChild({ id, children }: { id: string; children: ReactNode }) {
 /* ---------- display ---------- */
 const tones = {
   gray: 'bg-sand text-ink-soft border-line', orange: 'bg-brand-50 text-brand-700 border-brand-200', green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  red: 'bg-red-50 text-red-700 border-red-200', blue: 'bg-sky-50 text-sky-700 border-sky-200', purple: 'bg-violet-50 text-violet-700 border-violet-200', yellow: 'bg-amber-50 text-amber-800 border-amber-200',
+  red: 'bg-red-50 text-red-700 border-red-200', blue: 'bg-sky-50 text-sky-700 border-sky-200', purple: 'bg-violet-50 text-violet-700 border-violet-200', yellow: 'bg-amber-50 text-amber-800 border-amber-200', teal: 'bg-teal-50 text-teal-700 border-teal-200',
 }
 export type Tone = keyof typeof tones
 export const Badge = ({ tone = 'gray', children, className }: { tone?: Tone; children: ReactNode; className?: string }) => (
@@ -67,17 +67,18 @@ export const Badge = ({ tone = 'gray', children, className }: { tone?: Tone; chi
 
 const statusTone: Record<string, Tone> = {
   active: 'green', accepted: 'green', approved: 'green', completed: 'green', present: 'green', cleared: 'green', paid: 'green', confirmed: 'green', converted: 'green',
-  awaiting_tutor: 'yellow', pending_review: 'yellow', pending: 'yellow', due: 'blue', tentative: 'yellow', pending_completion: 'yellow', unmarked: 'gray', draft: 'gray', scheduled: 'blue', contacted: 'yellow', new: 'blue', demo_scheduled: 'purple', demo_done: 'orange',
+  awaiting_tutor: 'yellow', pending_review: 'yellow', pending: 'yellow', due: 'blue', tentative: 'yellow', pending_completion: 'yellow', unmarked: 'gray', draft: 'gray', scheduled: 'blue', contacted: 'yellow', new: 'blue', demo_scheduled: 'purple', demo_accepted: 'teal', demo_done: 'orange',
   on_hold: 'red', declined: 'red', rejected: 'red', suspended: 'red', cancelled: 'red', absent: 'red', overdue: 'red', tutor_no_show: 'red', student_no_show: 'red', withdrawn: 'gray', lost: 'gray', occupied: 'red', on_leave: 'red', unavailable: 'red', rescheduled: 'orange', finalized: 'blue', no_plan: 'gray', outside_hours: 'gray',
 }
-export const StatusBadge = ({ status, text }: { status: string; text?: string }) => <Badge tone={statusTone[status] ?? 'gray'}>{text ?? status.replace(/_/g, ' ')}</Badge>
+export const toneClass = (status: string) => tones[statusTone[status] ?? 'gray']
+export const StatusBadge =({ status, text }: { status: string; text?: string }) => <Badge tone={statusTone[status] ?? 'gray'}>{text ?? status.replace(/_/g, ' ')}</Badge>
 
 export const Card = ({ children, className, onClick }: { children: ReactNode; className?: string; onClick?: () => void }) => (
   <div onClick={onClick} className={cx('rounded-2xl border border-line bg-white shadow-[0_1px_2px_rgba(60,40,10,.04)]', onClick && 'cursor-pointer hover:border-brand-200 hover:shadow-md transition', className)}>{children}</div>
 )
 
 export function Stat({ label, value, sub, tone = 'gray', icon }: { label: string; value: ReactNode; sub?: ReactNode; tone?: Tone; icon?: ReactNode }) {
-  const bg = { gray: 'bg-white', orange: 'bg-brand-50', green: 'bg-emerald-50', red: 'bg-red-50', blue: 'bg-sky-50', purple: 'bg-violet-50', yellow: 'bg-amber-50' }[tone]
+  const bg = { gray: 'bg-white', orange: 'bg-brand-50', green: 'bg-emerald-50', red: 'bg-red-50', blue: 'bg-sky-50', purple: 'bg-violet-50', yellow: 'bg-amber-50', teal: 'bg-teal-50' }[tone]
   return (
     <div className={cx('rounded-2xl border border-line p-4 flex items-start gap-3', bg)}>
       {icon && <div className="rounded-xl bg-white/80 border border-line p-2 text-ink-soft">{icon}</div>}
@@ -223,22 +224,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
 /* ---------- responsive table ---------- */
 export interface Column<T> { h: string; cell: (r: T) => ReactNode; primary?: boolean; className?: string; hideOnCard?: boolean }
-export function DataTable<T>({ rows, columns, rowKey, onRowClick, empty }: { rows: T[]; columns: Column<T>[]; rowKey: (r: T, i: number) => string; onRowClick?: (r: T) => void; empty?: ReactNode }) {
+export function DataTable<T>({ rows, columns, rowKey, onRowClick, empty, grid }: { rows: T[]; columns: Column<T>[]; rowKey: (r: T, i: number) => string; onRowClick?: (r: T) => void; empty?: ReactNode; grid?: boolean }) {
   if (!rows.length) return <>{empty ?? <Empty title="Nothing to show" />}</>
   const primary = columns.find((c) => c.primary) ?? columns[0]
   return (
     <>
-      <div className="hidden md:block overflow-x-auto scroll-thin rounded-2xl border border-line bg-white">
-        <table className="w-full text-sm">
+      <div className={cx('hidden md:block overflow-x-auto scroll-thin border border-line bg-white', !grid && 'rounded-2xl')}>
+        <table className={cx('w-full text-sm', grid && 'border-collapse')}>
           <thead>
             <tr className="text-left text-meta uppercase tracking-wider text-ink-soft bg-sand/60">
-              {columns.map((c) => <th key={c.h} className={cx('px-4 py-3 font-bold', c.className)}>{c.h}</th>)}
+              {columns.map((c) => <th key={c.h} className={cx('px-4 py-3 font-bold', grid && 'border border-line whitespace-nowrap', c.className)}>{c.h}</th>)}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={rowKey(r, i)} onClick={onRowClick ? () => onRowClick(r) : undefined} className={cx('border-t border-line', onRowClick && 'cursor-pointer hover:bg-brand-50/50')}>
-                {columns.map((c) => <td key={c.h} className={cx('px-4 py-3 align-middle', c.className)}>{c.cell(r)}</td>)}
+              <tr key={rowKey(r, i)} onClick={onRowClick ? () => onRowClick(r) : undefined} className={cx(!grid && 'border-t border-line', onRowClick && 'cursor-pointer hover:bg-brand-50/50')}>
+                {columns.map((c) => <td key={c.h} className={cx('px-4 py-3 align-middle', grid && 'border border-line', c.className)}>{c.cell(r)}</td>)}
               </tr>
             ))}
           </tbody>

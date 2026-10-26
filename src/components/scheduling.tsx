@@ -12,7 +12,7 @@ export const SESSION_SELECT = 'id, teacher_id, start_at, end_at, status, meeting
 
 export interface CalEvent { id: string; start: string; end: string; title: string; sub?: string; tone: Tone; kind: 'session' | 'demo'; raw: Row }
 
-const toneBar: Record<Tone, string> = { gray: 'bg-gray-300', orange: 'bg-brand-500', green: 'bg-emerald-500', red: 'bg-red-400', blue: 'bg-sky-500', purple: 'bg-violet-500', yellow: 'bg-amber-400' }
+const toneBar: Record<Tone, string> = { gray: 'bg-gray-300', orange: 'bg-brand-500', green: 'bg-emerald-500', red: 'bg-red-400', blue: 'bg-sky-500', purple: 'bg-violet-500', yellow: 'bg-amber-400', teal: 'bg-teal-500' }
 
 export const names = (s: Row) => (s.session_participants as Row[]).map((p) => p.enrollments?.students?.full_name).filter(Boolean) as string[]
 

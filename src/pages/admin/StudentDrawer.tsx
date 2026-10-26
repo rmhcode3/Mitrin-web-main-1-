@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { useAction, useAsync, useSetting } from '../../lib/hooks'
 import { AGE_GROUPS, LEVELS } from '../../lib/domain'
-import { TIMEZONES, digits, fmtDate, fmtDateTime, inr, label, todayIn } from '../../lib/format'
+import { digits, fmtDate, fmtDateTime, inr, label, todayIn } from '../../lib/format'
 import { Badge, Button, Drawer, Empty, Field, Input, KV, Modal, Notice, Section, Select, Spinner, Stat, StatusBadge, Tabs, Textarea, useConfirm } from '../../components/ui'
 
 type Tab = 'overview' | 'schedule' | 'credits' | 'attendance' | 'notes' | 'payments' | 'history'
@@ -21,7 +21,7 @@ export function StudentDrawer({ enrollmentId, teachers, onClose, onChanged }: { 
   const lowAt = useSetting<number>('credits.low_balance_warning_at', 2)
   const agingDays = useSetting<number>('credits.pending_age_warning_days', 14)
   const [tab, setTab] = useState<Tab>('overview')
-  const [modal, setModal] = useState<null | 'credits' | 'edit' | 'assign' | 'course' | 'withdraw'>(null)
+  const [modal, setModal] = useState<null | 'credits' | 'assign' | 'course' | 'withdraw'>(null)
   const { busy, run } = useAction()
   const coord = can('coordinator')
 
@@ -90,18 +90,22 @@ export function StudentDrawer({ enrollmentId, teachers, onClose, onChanged }: { 
               <Stat label="Booked" value={bal?.reserved ?? 0} /><Stat label="Delivered" value={bal?.fulfilled ?? 0} tone="green" />
               <Stat label="Makeup to arrange" value={makeup} tone={aging ? 'red' : makeup ? 'orange' : 'gray'} sub={aging ? `Oldest over ${agingDays} days` : undefined} />
             </div>
-            <Section title="Learner & contact" action={coord ? <Button size="sm" onClick={() => setModal('edit')}>Edit</Button> : undefined}>
-              <dl className="grid sm:grid-cols-2 gap-4">
-                <KV k="Parent / contact" v={c.parent_name} /><KV k="WhatsApp" v={c.phone} /><KV k="Email" v={c.email} /><KV k="Level" v={stu.level} />
-                <KV k="Age group" v={stu.age_group} /><KV k="Learner time zone" v={stu.timezone} />
-              </dl>
-              {stu.notes && <p className="text-sm mt-3 whitespace-pre-wrap text-ink-soft">{stu.notes}</p>}
+            <Section title="Lead">
+              {coord ? <EditForm key={`${e.id}-${e.updated_at}-${stu.updated_at}`} stu={stu} contact={c} e={e} onDone={() => void refresh()} /> : (
+                <>
+                  <dl className="grid sm:grid-cols-2 gap-4">
+                    <KV k="Parent / contact" v={c.parent_name} /><KV k="WhatsApp" v={c.phone} /><KV k="Email" v={c.email} /><KV k="Level" v={stu.level} />
+                    <KV k="Age group" v={stu.age_group} />
+                  </dl>
+                  {stu.notes && <p className="text-sm mt-3 whitespace-pre-wrap text-ink-soft">{stu.notes}</p>}
+                </>
+              )}
             </Section>
             <Section title="Course & teacher" action={coord && !['completed', 'withdrawn'].includes(e.status) ? <Button size="sm" onClick={() => setModal('assign')}><UserCog size={14} /> {e.primary_teacher_id ? 'Change tutor' : 'Assign tutor'}</Button> : undefined}>
               <dl className="grid sm:grid-cols-2 gap-4">
                 <KV k="Language" v={e.languages?.name} /><KV k="Tutor" v={<span>{tName(e.primary_teacher_id)} {e.primary_teacher_id && <Badge tone={e.assignment_status === 'accepted' ? 'green' : e.assignment_status === 'declined' ? 'red' : 'yellow'}>{label[e.assignment_status]}</Badge>}</span>} />
-                <KV k="Term" v={e.term_start || e.term_end ? `${fmtDate(e.term_start)} → ${fmtDate(e.term_end)}` : 'Not set'} /><KV k="Agreed classes" v={e.agreed_classes} />
-                <KV k="Preferred timing" v={e.preferred_timing} /><KV k="Meeting link" v={e.meeting_link ? <a className="text-brand-700 underline break-all" href={e.meeting_link} target="_blank" rel="noreferrer">{e.meeting_link}</a> : null} />
+                {!coord && <><KV k="Term" v={e.term_start || e.term_end ? `${fmtDate(e.term_start)} → ${fmtDate(e.term_end)}` : 'Not set'} /><KV k="Agreed classes" v={e.agreed_classes} />
+                <KV k="Preferred timing" v={e.preferred_timing} /><KV k="Meeting link" v={e.meeting_link ? <a className="text-brand-700 underline break-all" href={e.meeting_link} target="_blank" rel="noreferrer">{e.meeting_link}</a> : null} /></>}
               </dl>
               {e.assignment_status === 'declined' && <p className="text-sm text-red-700 mt-3">The tutor declined. Assign another tutor to continue.</p>}
             </Section>
@@ -179,7 +183,6 @@ export function StudentDrawer({ enrollmentId, teachers, onClose, onChanged }: { 
       </Drawer>
 
       {modal === 'credits' && <CreditsModal enrollment={e} onClose={() => setModal(null)} onDone={() => { setModal(null); void refresh() }} />}
-      {modal === 'edit' && <EditModal stu={stu} contact={c} e={e} onClose={() => setModal(null)} onDone={() => { setModal(null); void refresh() }} />}
       {modal === 'assign' && <AssignModal e={e} teachers={teachers} onClose={() => setModal(null)} onDone={() => { setModal(null); void refresh() }} />}
       {modal === 'course' && <CourseModal studentId={stu.id} onClose={() => setModal(null)} onDone={(id) => { setModal(null); onChanged(); nav(`/admin/students?open=${id}`) }} />}
       {modal === 'withdraw' && <WithdrawModal e={e} stu={stu} owed={owed} onClose={() => setModal(null)} onDone={() => { setModal(null); void refresh() }} />}
@@ -208,7 +211,7 @@ function CreditsModal({ enrollment, onClose, onDone }: { enrollment: Row; onClos
   )
 }
 
-function EditModal({ stu, contact, e, onClose, onDone }: { stu: Row; contact: Row; e: Row; onClose: () => void; onDone: () => void }) {
+function EditForm({ stu, contact, e, onDone }: { stu: Row; contact: Row; e: Row; onDone: () => void }) {
   const [f, setF] = useState({ full_name: stu.full_name, level: stu.level ?? '', age_group: stu.age_group ?? '', timezone: stu.timezone, notes: stu.notes ?? '', parent_name: contact.parent_name ?? '', phone: contact.phone ?? '', email: contact.email ?? '',
     term_start: e.term_start ?? '', term_end: e.term_end ?? '', agreed_classes: e.agreed_classes ?? '', preferred_timing: e.preferred_timing ?? '', meeting_link: e.meeting_link ?? '' })
   const [err, setErr] = useState('')
@@ -228,10 +231,9 @@ function EditModal({ stu, contact, e, onClose, onDone }: { stu: Row; contact: Ro
     onDone()
   }, 'Details saved')
   return (
-    <Modal open wide onClose={onClose} title="Edit student & course" footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} onClick={() => void save()}>Save changes</Button></>}>
+    <>
       <div className="grid sm:grid-cols-2 gap-4">
         <Field label="Learner name" required><Input value={f.full_name} onChange={s('full_name')} /></Field>
-        <Field label="Time zone"><Select value={f.timezone} onChange={s('timezone')}>{[...new Set([f.timezone, ...TIMEZONES])].map((z) => <option key={z}>{z}</option>)}</Select></Field>
         <Field label="Level"><Select value={f.level} onChange={s('level')}><option value="">—</option>{[...new Set([f.level, ...LEVELS].filter(Boolean))].map((z) => <option key={z}>{z}</option>)}</Select></Field>
         <Field label="Age group"><Select value={f.age_group} onChange={s('age_group')}><option value="">—</option>{[...new Set([f.age_group, ...AGE_GROUPS].filter(Boolean))].map((z) => <option key={z}>{z}</option>)}</Select></Field>
         <Field label="Parent / contact name"><Input value={f.parent_name} onChange={s('parent_name')} /></Field>
@@ -245,7 +247,8 @@ function EditModal({ stu, contact, e, onClose, onDone }: { stu: Row; contact: Ro
         <Field label="Notes" className="sm:col-span-2"><Textarea value={f.notes} onChange={s('notes')} /></Field>
       </div>
       {err && <p role="alert" className="text-sm text-red-600 mt-3">{err}</p>}
-    </Modal>
+      <div className="mt-4"><Button variant="primary" loading={busy} onClick={() => void save()}>Save changes</Button></div>
+    </>
   )
 }
 

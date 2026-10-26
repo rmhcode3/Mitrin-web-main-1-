@@ -43,10 +43,10 @@ export function DemoScheduler({ lead, replaces, teachers, onDone }: { lead: Row;
   return (
     <div className="space-y-4">
       <div className="grid sm:grid-cols-2 gap-3">
-        <Field label="Date" required><Input type="date" value={date} onChange={(e) => { setDate(e.target.value); setTutors(null) }} /></Field>
-        <Field label="Start time" required><Input type="time" value={time} step={900} onChange={(e) => { setTime(e.target.value); setTutors(null) }} /></Field>
+        <Field label="Date" required><Input type="date" min={todayIn(tz)} value={date} onChange={(e) => { setDate(e.target.value); setTutors(null) }} /></Field>
+        <Field label="Start time (India time, IST)" required><Input type="time" min={date === todayIn(tz) ? new Date().toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }) : undefined} value={time} step={900} onChange={(e) => { setTime(e.target.value); setTutors(null) }} /></Field>
       </div>
-      <Button onClick={() => void find()} loading={finder.busy} disabled={!date || !time}>Find available tutors</Button>
+      <Button variant="primary" onClick={() => void find()} loading={finder.busy} disabled={!date || !time}>Find available tutors</Button>
 
       {tutors && (
         <div className="space-y-2">
