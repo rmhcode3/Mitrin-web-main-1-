@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { useAction, useAsync } from '../../lib/hooks'
 import { addDays, fmtClock, fmtDate, fmtDateTime, inr, label, mondayOf, todayIn, WEEKDAYS } from '../../lib/format'
-import { Badge, Button, Card, Drawer, Empty, ErrorBox, Field, Input, KV, Modal, Notice, PageHeader, SearchBox, Section, Spinner, StatusBadge, Tabs, Textarea, useConfirm } from '../../components/ui'
+import { Badge, Button, Card, Drawer, Empty, ErrorBox, Field, Input, KV, Modal, Notice, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Tabs, Textarea, useConfirm } from '../../components/ui'
 
 type Tab = 'active' | 'pending' | 'inactive' | 'requests'
 const one = <T,>(x: T | T[] | null | undefined): T | undefined => (Array.isArray(x) ? x[0] : x ?? undefined)
@@ -18,6 +18,8 @@ export default function Teachers() {
   const confirm = useConfirm()
   const [tab, setTab] = useState<Tab>('active')
   const [q, setQ] = useState('')
+  const [st, setSt] = useState('')
+  const [page, setPage] = useState(1)
   const [openId, setOpenId] = useState<string | null>(null)
   const [rejecting, setRejecting] = useState<Row | null>(null)
   const [why, setWhy] = useState('')
@@ -34,6 +36,7 @@ export default function Teachers() {
   })
 
   const nextMonday = (tz: string) => addDays(mondayOf(todayIn(tz)), 7)
+  const onLeave = (t: Row) => { const today = todayIn(t.timezone); return !!data?.leaves.some((l) => l.teacher_id === t.user_id && l.status === 'approved' && l.start_date <= today && l.end_date >= today) }
   const rows = useMemo(() => {
     if (!data) return []
     const s = q.trim().toLowerCase()
@@ -41,9 +44,14 @@ export default function Teachers() {
       const p = t.profiles as Row
       if (s && ![p.full_name, p.email, ...(t.languages as string[])].some((v) => String(v).toLowerCase().includes(s))) return false
       const suspended = p.status === 'suspended'
+      if (st === 'on_leave' ? !onLeave(t) : st === 'available' && onLeave(t)) return false
       return tab === 'active' ? t.approval_status === 'approved' && !suspended : tab === 'pending' ? t.approval_status === 'pending_review' && !suspended : tab === 'inactive' ? suspended || t.approval_status === 'rejected' : false
     })
-  }, [data, tab, q])
+  }, [data, tab, q, st])
+  const PAGE = 9
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE))
+  const cur = Math.min(page, pages)
+  const shown = rows.slice((cur - 1) * PAGE, cur * PAGE)
 
   const requests = useMemo(() => data?.enr.filter((e) => ['awaiting_tutor', 'declined'].includes(e.assignment_status) && !['completed', 'withdrawn'].includes(e.status)) ?? [], [data])
   const tName = (id: string) => data?.tps.find((t) => t.user_id === id)?.profiles?.full_name ?? '—'
@@ -79,6 +87,9 @@ export default function Teachers() {
             <div className={`rounded-lg py-1.5 ${confirmed ? 'bg-emerald-50' : 'bg-amber-50'}`}><p className="font-extrabold">{confirmed ? 'Yes' : 'No'}</p><p className="text-[10px] text-ink-soft uppercase">Next wk</p></div>
           </div>
         )}
+        <div className="mt-3 pt-3 border-t border-line flex items-center justify-between text-xs text-ink-soft">
+          <span>Joined {fmtDate(p.created_at)}</span><span className="text-brand-700 font-semibold">View profile →</span>
+        </div>
         {pend > 0 && <p className="text-xs text-amber-700 mt-2 font-semibold">{pend} assignment request{pend > 1 ? 's' : ''} awaiting reply</p>}
         {coord && t.approval_status === 'pending_review' && p.status !== 'suspended' && (
           <div className="mt-3 flex gap-2" onClick={(e) => e.stopPropagation()}>
@@ -95,8 +106,22 @@ export default function Teachers() {
   return (
     <>
       <PageHeader title="Teacher roster" subtitle="Approve applications, monitor assignments and open any tutor’s full teaching profile." />
-      <div className="mb-4"><Tabs<Tab> value={tab} onChange={setTab} tabs={[{ id: 'active', label: 'Active' }, { id: 'pending', label: 'Pending approval', count: pendingN }, { id: 'inactive', label: 'Suspended / rejected' }, { id: 'requests', label: 'Assignment requests', count: requests.length }]} /></div>
-      {tab !== 'requests' && <SearchBox className="mb-4 max-w-md" value={q} onChange={setQ} placeholder="Search tutor, email or language…" />}
+      <div className="mb-4"><Tabs<Tab> value={tab} onChange={(v) => { setTab(v); setPage(1) }} tabs={[{ id: 'active', label: 'Active' }, { id: 'pending', label: 'Pending approval', count: pendingN }, { id: 'inactive', label: 'Suspended / rejected' }, { id: 'requests', label: 'Assignment requests', count: requests.length }]} /></div>
+      {data && (
+        <Card className="grid gap-3 sm:grid-cols-3 p-4 mb-4 divide-y sm:divide-y-0 sm:divide-x divide-line">
+          {[['Active tutors', `${data.tps.filter((t) => t.approval_status === 'approved' && t.profiles.status !== 'suspended').length} active`, 'bg-emerald-50 text-emerald-700'],
+            ['Tutors on leave today', `${data.tps.filter(onLeave).length} on leave`, 'bg-amber-50 text-amber-700'],
+            ['Languages covered', `${new Set(data.tps.filter((t) => t.approval_status === 'approved').flatMap((t) => t.languages as string[])).size} languages`, 'bg-brand-50 text-brand-700']].map(([k, v, c]) => (
+            <div key={k} className="flex items-center gap-3 sm:px-3 pt-3 sm:pt-0 first:pt-0"><div className={`h-10 w-10 rounded-lg flex items-center justify-center font-extrabold ${c}`}>{v.split(' ')[0]}</div><div><p className="text-meta uppercase tracking-wider text-ink-soft">{k}</p><p className="font-bold">{v}</p></div></div>
+          ))}
+        </Card>
+      )}
+      {tab !== 'requests' && (
+        <Card className="p-3 mb-4 flex flex-wrap gap-3 items-center">
+          <SearchBox className="flex-1 min-w-52" value={q} onChange={(v) => { setQ(v); setPage(1) }} placeholder="Search by name, email or language…" />
+          <Select aria-label="Availability" className="w-48" value={st} onChange={(e) => { setSt(e.target.value); setPage(1) }}><option value="">All statuses</option><option value="available">Available</option><option value="on_leave">On leave today</option></Select>
+        </Card>
+      )}
       {loading && !data ? <Spinner /> : error ? <ErrorBox message={error} onRetry={reload} /> : tab === 'requests' ? (
         !requests.length ? <Empty title="No open assignment requests" hint="Requests appear here until the tutor accepts." /> : (
           <div className="grid gap-3 md:grid-cols-2">{requests.map((e) => (
@@ -105,7 +130,17 @@ export default function Teachers() {
               <div className="flex items-center gap-2"><StatusBadge status={e.assignment_status} text={label[e.assignment_status]} /><Button size="sm" onClick={() => nav(`/admin/students?open=${e.id}`)}>Reassign</Button></div>
             </Card>))}</div>
         )
-      ) : !rows.length ? <Empty title="No tutors here" /> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{rows.map((t) => <TeacherCard key={t.user_id} t={t} />)}</div>}
+      ) : !rows.length ? <Empty title="No tutors here" /> : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{shown.map((t) => <TeacherCard key={t.user_id} t={t} />)}</div>
+          {pages > 1 && (
+            <Card className="mt-4 px-4 py-3 flex items-center justify-between text-sm">
+              <span className="text-ink-soft">Showing <b className="text-ink">{(cur - 1) * PAGE + 1}</b> to <b className="text-ink">{Math.min(rows.length, cur * PAGE)}</b> of <b className="text-ink">{rows.length}</b> tutors</span>
+              <div className="flex gap-2"><Button size="sm" disabled={cur === 1} onClick={() => setPage(cur - 1)}>Previous</Button><Button size="sm" disabled={cur === pages} onClick={() => setPage(cur + 1)}>Next</Button></div>
+            </Card>
+          )}
+        </>
+      )}
 
       {openId && data && <TeacherProfile t={data.tps.find((t) => t.user_id === openId)!} data={data} coord={coord} onClose={() => setOpenId(null)} reload={() => void reload()}
         onApprove={(t) => void decide(t, 'approved')} onReject={(t) => setRejecting(t)} onActive={(t, s) => void setActive(t, s)} />}

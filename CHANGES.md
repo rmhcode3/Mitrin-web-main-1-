@@ -2,6 +2,18 @@
 
 ## 2026-10-24
 
+### Demo scheduler: contact tutors who are not free
+**Commit:** Uncommitted
+- **Changed:** `src/components/DemoScheduler.tsx` — "Other Tutors" column has a note and a "Contact on WhatsApp" link per tutor (prefilled request for the chosen date/time, IST) so the admin can ask non-available tutors to cover.
+
+### Availability matrix: single-tutor view modelled on the reference page
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/AvailabilityMatrix.tsx` — new Tutor dropdown; picking a tutor shows usual weekly hours by weekday, upcoming blocked dates, leave periods and an availability conflict tester (checks leave, exceptions and usual hours) above the grid, which is filtered to that tutor. Read-only; no database change.
+
+### Teacher roster: layout modelled on the reference Teachers page
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Teachers.tsx` — summary strip (active tutors, on leave today, languages covered); search + availability dropdown (All / Available / On leave today) in one bar; cards get a "Joined date / View profile →" footer; 9 cards per page with "Showing x to y of N tutors" and Previous/Next.
+
 ### Date range filter (Leads, Demos, Enrollment, Availability matrix) and Excel-style tables
 **Commit:** Uncommitted
 - **Added:** `src/components/DateRange.tsx` — `useDateRange` + `DateRangeFilter` dropdown (All, Yesterday, Today, This Week, This Month, Custom with from/to dates); India time; the selected range is shown beside the dropdown.

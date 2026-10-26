@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { select, type Row } from '../../lib/api'
 import { useAsync } from '../../lib/hooks'
-import { WD3, addDays, dow, fmtClock, mondayOf, todayIn } from '../../lib/format'
-import { Badge, Card, Empty, ErrorBox, PageHeader, Select, Spinner } from '../../components/ui'
+import { WD3, WEEKDAYS, addDays, dow, fmtClock, fmtDate, mondayOf, todayIn } from '../../lib/format'
+import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Notice, PageHeader, Section, Select, Spinner, StatusBadge } from '../../components/ui'
 import { DateRangeFilter, useDateRange } from '../../components/DateRange'
 
 export default function AvailabilityMatrix() {
   const range = useDateRange()
   const [lang, setLang] = useState('')
+  const [pick, setPick] = useState('')
   const monday = mondayOf(todayIn('Asia/Kolkata'))
   // "All" shows four weeks from this Monday; an empty custom range falls back to this week; custom ranges are capped at 62 days.
   const start = range.preset === 'all' || !range.from ? monday : range.from
@@ -30,7 +31,7 @@ export default function AvailabilityMatrix() {
   }, [start, count])
 
   const allLangs = useMemo(() => [...new Set((data?.tps ?? []).flatMap((t) => t.languages as string[]))].sort(), [data])
-  const rows = (data?.tps ?? []).filter((t) => !lang || (t.languages as string[]).includes(lang))
+  const rows = (data?.tps ?? []).filter((t) => (!lang || (t.languages as string[]).includes(lang)) && (!pick || t.user_id === pick))
 
   const confirmed = (t: Row) => weeks.every((w) => data!.conf.some((c) => c.teacher_id === t.user_id && c.week_start === w))
 
@@ -56,8 +57,10 @@ export default function AvailabilityMatrix() {
       <PageHeader title="Tutor availability matrix" subtitle="Day-by-day view of every approved tutor for the chosen dates. Green is a usual-hours window; red shows leave or exceptions. A week is confirmed only when the tutor confirms it." />
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <DateRangeFilter range={range} />
-        <Select aria-label="Language" className="w-44 ml-auto" value={lang} onChange={(e) => setLang(e.target.value)}><option value="">All languages</option>{allLangs.map((l) => <option key={l}>{l}</option>)}</Select>
+        <Select aria-label="Tutor" className="w-48 ml-auto" value={pick} onChange={(e) => setPick(e.target.value)}><option value="">All tutors</option>{(data?.tps ?? []).map((t) => <option key={t.user_id} value={t.user_id}>{t.profiles.full_name}</option>)}</Select>
+        <Select aria-label="Language" className="w-44" value={lang} onChange={(e) => setLang(e.target.value)}><option value="">All languages</option>{allLangs.map((l) => <option key={l}>{l}</option>)}</Select>
       </div>
+      {pick && data && data.tps.find((t) => t.user_id === pick) && <TutorAvailability t={data.tps.find((t) => t.user_id === pick)!} rules={data.rules} />}
       {error ? <ErrorBox message={error} onRetry={reload} /> : loading && !data ? <Spinner /> : !rows.length ? <Empty title="No approved tutors" /> : (
         <>
           <Card className="hidden md:block overflow-x-auto scroll-thin rounded-none">
@@ -78,5 +81,84 @@ export default function AvailabilityMatrix() {
         </>
       )}
     </>
+  )
+}
+
+const hm = (t: string) => t.slice(0, 5)
+
+/** One tutor's usual weekly hours, blocked dates and leave, plus a conflict checker for a proposed date and time. */
+function TutorAvailability({ t, rules }: { t: Row; rules: Row[] }) {
+  const today = todayIn('Asia/Kolkata')
+  const extra = useAsync(async () => {
+    const [exc, leaves] = await Promise.all([
+      select('availability_exceptions', '*', (q) => q.eq('teacher_id', t.user_id).gte('on_date', today).order('on_date')),
+      select('teacher_leaves', '*', (q) => q.eq('teacher_id', t.user_id).order('start_date', { ascending: false })),
+    ])
+    return { exc, leaves }
+  }, [t.user_id])
+  const [date, setDate] = useState(today)
+  const [from, setFrom] = useState('10:00')
+  const [to, setTo] = useState('11:00')
+  const [result, setResult] = useState<{ ok: boolean; msgs: string[] } | null>(null)
+  const mine = rules.filter((r) => r.teacher_id === t.user_id)
+
+  const check = () => {
+    const msgs: string[] = []
+    if (!date || !from || !to || to <= from) return setResult({ ok: false, msgs: ['Enter a date and a start time before the end time.'] })
+    const leave = extra.data?.leaves.find((l) => ['approved', 'pending'].includes(l.status) && l.start_date <= date && l.end_date >= date)
+    if (leave) msgs.push(`On leave from ${fmtDate(leave.start_date, 'UTC')} to ${fmtDate(leave.end_date, 'UTC')}${leave.status === 'pending' ? ' (leave request pending)' : ''}.`)
+    for (const e of extra.data?.exc.filter((x) => x.on_date === date) ?? []) {
+      if (!e.start_time) msgs.push('Marked unavailable for the whole day.')
+      else if (hm(e.start_time) < to && hm(e.end_time) > from) msgs.push(`Off ${fmtClock(e.start_time)}–${fmtClock(e.end_time)} on that day.`)
+    }
+    const wins = mine.filter((r) => r.weekday === dow(date))
+    if (!wins.length) msgs.push(`No usual hours on ${WEEKDAYS[dow(date)]}s.`)
+    else if (!wins.some((w) => hm(w.start_time) <= from && hm(w.end_time) >= to)) msgs.push(`Outside usual ${WEEKDAYS[dow(date)]} hours: ${wins.map((w) => `${fmtClock(w.start_time)}–${fmtClock(w.end_time)}`).join(', ')}.`)
+    setResult({ ok: !msgs.length, msgs: msgs.length ? msgs : [`${t.profiles.full_name} is free on ${fmtDate(date, 'UTC')}, ${fmtClock(from)}–${fmtClock(to)}.`] })
+  }
+
+  return (
+    <div className="grid lg:grid-cols-3 gap-4 mb-5">
+      <div className="lg:col-span-2 space-y-4">
+        <Section title="Usual weekly hours">
+          <div className="grid sm:grid-cols-2 gap-3">
+            {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+              const w = mine.filter((r) => r.weekday === d)
+              return (
+                <div key={d} className="rounded-xl border border-line bg-sand/60 p-3 space-y-1.5">
+                  <p className="text-sm font-bold">{WEEKDAYS[d]}</p>
+                  {!w.length ? <p className="text-xs text-ink-soft italic">No regular hours set</p> : w.map((r) => <p key={r.id} className="text-xs font-medium rounded bg-emerald-50 border border-emerald-200 px-2 py-1">{fmtClock(r.start_time)} – {fmtClock(r.end_time)}</p>)}
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+        <Section title="Blocked dates & leaves">
+          {extra.loading ? <Spinner /> : (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm font-bold mb-2">Blocked dates</p>
+                {!extra.data?.exc.length ? <p className="text-xs text-ink-soft italic">No upcoming blocked dates.</p> : <ul className="space-y-1.5">{extra.data.exc.map((x) => <li key={x.id} className="rounded-lg border border-line bg-white px-3 py-2 text-xs"><b>{fmtDate(x.on_date, 'UTC')}</b><span className="block text-ink-soft">{x.start_time ? `${fmtClock(x.start_time)}–${fmtClock(x.end_time)}` : 'Whole day'}{x.reason ? ` · ${x.reason}` : ''}</span></li>)}</ul>}
+              </div>
+              <div>
+                <p className="text-sm font-bold mb-2">Leave periods</p>
+                {!extra.data?.leaves.length ? <p className="text-xs text-ink-soft italic">No leave filed.</p> : <ul className="space-y-1.5">{extra.data.leaves.map((l) => <li key={l.id} className="rounded-lg border border-line bg-white px-3 py-2 text-xs flex justify-between gap-2"><span><b>{fmtDate(l.start_date, 'UTC')} – {fmtDate(l.end_date, 'UTC')}</b>{l.reason && <span className="block text-ink-soft">{l.reason}</span>}</span><StatusBadge status={l.status} text={l.status} /></li>)}</ul>}
+              </div>
+            </div>
+          )}
+        </Section>
+      </div>
+      <Section title="Availability conflict tester">
+        <div className="space-y-3">
+          <Field label="Proposed date"><Input type="date" value={date} onChange={(e) => { setDate(e.target.value); setResult(null) }} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Start time"><Input type="time" value={from} onChange={(e) => { setFrom(e.target.value); setResult(null) }} /></Field>
+            <Field label="End time"><Input type="time" value={to} onChange={(e) => { setTo(e.target.value); setResult(null) }} /></Field>
+          </div>
+          <Button variant="primary" onClick={check} disabled={extra.loading}>Inspect schedule conflicts</Button>
+          {result && <Notice tone={result.ok ? 'green' : 'red'}><ul className="space-y-1">{result.msgs.map((m) => <li key={m}>{m}</li>)}</ul></Notice>}
+        </div>
+      </Section>
+    </div>
   )
 }

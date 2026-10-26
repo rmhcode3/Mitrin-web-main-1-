@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { rpc, type Row } from '../lib/api'
 import { useAction } from '../lib/hooks'
 import { fmtDateTime, fmtTime, label, shortTz, todayIn, zonedToUtc } from '../lib/format'
+import { MessageCircle } from 'lucide-react'
+import { waLink } from '../lib/domain'
 import { Badge, Button, Field, Input, Notice, type Tone } from './ui'
 
 interface Tutor { tutor_id: string; tutor_name: string; availability: string }
@@ -54,15 +56,20 @@ export function DemoScheduler({ lead, replaces, teachers, onDone }: { lead: Row;
           {tutors.length > 0 && <div className="grid grid-cols-2 gap-3 items-start">{([['Available Tutors', sorted.filter((t) => ['confirmed', 'tentative'].includes(t.availability))], ['Other Tutors', sorted.filter((t) => !['confirmed', 'tentative'].includes(t.availability))]] as const).map(([title, list]) => (
             <div key={title} className="space-y-2 min-w-0">
               <p className="text-sm font-bold pt-1">{title}</p>
+              {title === 'Other Tutors' && <p className="text-xs text-ink-soft">Not free at this time. Contact them on WhatsApp to ask if they can cover.</p>}
               {!list.length && <p className="text-xs text-ink-soft">None</p>}
               {list.map((t) => {
                 const blocked = ['occupied', 'on_leave'].includes(t.availability)
+                const wa = title === 'Other Tutors' ? waLink(teachers.find((x) => x.id === t.tutor_id)?.phone) : undefined
                 return (
-                  <label key={t.tutor_id} className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border p-3 cursor-pointer min-h-12 ${pick === t.tutor_id ? 'border-brand-500 bg-brand-50' : 'border-line bg-white'} ${blocked ? 'opacity-60' : ''}`}>
+                  <div key={t.tutor_id} className="space-y-1">
+                  <label className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border p-3 cursor-pointer min-h-12 ${pick === t.tutor_id ? 'border-brand-500 bg-brand-50' : 'border-line bg-white'} ${blocked ? 'opacity-60' : ''}`}>
                     <input type="radio" name="tutor" disabled={blocked} checked={pick === t.tutor_id} onChange={() => setPick(t.tutor_id)} className="accent-brand-500 h-4 w-4" />
                     <span className="flex-1 font-semibold">{t.tutor_name}</span>
                     <Badge tone={aTone[t.availability] ?? 'gray'}>{label[t.availability] ?? t.availability}</Badge>
                   </label>
+                  {wa && <a href={`${wa}?text=${encodeURIComponent(`Hello ${t.tutor_name}, can you take a demo class on ${fmtDateTime(start(), tz)} (IST)? Please reply to confirm.`)}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:underline"><MessageCircle size={13} /> Contact on WhatsApp</a>}
+                  </div>
                 )
               })}
             </div>
