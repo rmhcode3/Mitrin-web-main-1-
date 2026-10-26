@@ -1,5 +1,11 @@
 # CHANGES
 
+## 2026-10-26
+
+### Class format column in Leads roster
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Leads.tsx` — new "Class format" column (Individual / Group / Either) in the Roster table and in the CSV/Excel export; coordinators can change it inline at any stage, including Converted and Lost.
+
 ## 2026-10-24
 
 ### Enrollment: hints for Awaiting tutor status

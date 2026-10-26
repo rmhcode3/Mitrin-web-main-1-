@@ -26,6 +26,7 @@ const STAGES = [
   { v: 'new', l: 'New Lead' }, { v: 'contacted', l: 'Contacted' }, { v: 'demo_scheduled', l: 'Demo Scheduled' }, { v: 'demo_accepted', l: 'Demo Accepted' },
   { v: 'demo_done', l: 'Demo Completed' }, { v: 'converted', l: 'Converted' }, { v: 'lost', l: 'Lost Lead' },
 ] as const
+const formatLabel = (v: string) => GROUP_PREFS.find((g) => g.v === v)?.l ?? '—'
 const stageLabel = (v: string) => STAGES.find((s) => s.v === v)?.l ?? v
 
 const blank = { enquirer_name: '', learner_name: '', phone: '', email: '', language_id: '', level: 'Beginner', age_group: '', preferred_timing: '', group_preference: 'either', source: 'Call', notes: '', tz: 'Asia/Kolkata' }
@@ -302,7 +303,13 @@ export default function Leads() {
     }, `Moved to ${stageLabel(to)}`)
   }
 
-  const Card1 = ({ l }: { l: Row }) => {
+  // Class format stays editable in every stage, including Converted and Lost.
+  const setFormat = (l: Row, v: string) => run(async () => {
+    await unwrap(supabase.from('leads').update({ group_preference: v }).eq('id', l.id))
+    await reload()
+  }, 'Class format updated')
+
+  const Card1 =({ l }: { l: Row }) => {
     const d = nextDemo(l.id)
     return (
       <Card className="p-3.5 cursor-pointer hover:border-brand-200 hover:shadow-md transition" onClick={() => setOpenId(l.id)}>
@@ -323,7 +330,7 @@ export default function Leads() {
 
   const exportCols = [
     { header: 'Learner', value: (l: Row) => l.learner_name }, { header: 'Enquirer', value: (l: Row) => l.enquirer_name }, { header: 'Phone', value: (l: Row) => l.phone }, { header: 'Email', value: (l: Row) => l.email },
-    { header: 'Language', value: (l: Row) => l.languages?.name }, { header: 'Level', value: (l: Row) => l.level }, { header: 'Source', value: (l: Row) => l.source }, { header: 'Stage', value: (l: Row) => stageLabel(l.stage) }, { header: 'Created', value: (l: Row) => String(l.created_at).slice(0, 10) },
+    { header: 'Language', value: (l: Row) => l.languages?.name }, { header: 'Level', value: (l: Row) => l.level }, { header: 'Class format', value: (l: Row) => formatLabel(l.group_preference) },{ header: 'Source', value: (l: Row) => l.source }, { header: 'Stage', value: (l: Row) => stageLabel(l.stage) }, { header: 'Created', value: (l: Row) => String(l.created_at).slice(0, 10) },
   ]
 
   return (
@@ -376,7 +383,7 @@ export default function Leads() {
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="text-left text-meta uppercase tracking-wider text-ink-soft bg-sand/60">
-                    {['Learner', 'Language', 'Phone', 'Source', 'Demo', 'Stage', 'Created'].map((h) => <th key={h} className="px-3 py-2 font-bold border border-line whitespace-nowrap">{h}</th>)}
+                    {['Learner', 'Language', 'Class format', 'Phone', 'Source', 'Demo', 'Stage', 'Created'].map((h) => <th key={h} className="px-3 py-2 font-bold border border-line whitespace-nowrap">{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -386,6 +393,14 @@ export default function Leads() {
                       <tr key={l.id} onClick={() => setOpenId(l.id)} className="cursor-pointer hover:bg-brand-50/50">
                         <td className="px-3 py-2 border border-line"><b>{l.learner_name}</b>{l.enquirer_name !== l.learner_name && <div className="text-xs text-ink-soft">via {l.enquirer_name}</div>}</td>
                         <td className="px-3 py-2 border border-line whitespace-nowrap">{`${l.languages?.name ?? '—'}${l.level ? ' · ' + l.level : ''}`}</td>
+                        <td className="px-1 py-1 border border-line whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {canWrite ? (
+                            <select aria-label={`Class format for ${l.learner_name}`} value={l.group_preference} onChange={(e) => void setFormat(l, e.target.value)}
+                              className="min-h-8 border-0 bg-transparent px-2 text-sm cursor-pointer">
+                              {GROUP_PREFS.map((g) => <option key={g.v} value={g.v}>{g.l}</option>)}
+                            </select>
+                          ) : <span className="px-2">{formatLabel(l.group_preference)}</span>}
+                        </td>
                         <td className="px-3 py-2 border border-line whitespace-nowrap">{l.phone ?? '—'}</td>
                         <td className="px-3 py-2 border border-line whitespace-nowrap">{l.source}</td>
                         <td className="px-3 py-2 border border-line whitespace-nowrap">{d ? fmtDate(d.start_at) : '—'}</td>
