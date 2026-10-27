@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { select, type Row } from '../../lib/api'
 import { useAsync } from '../../lib/hooks'
 import { WD3, WEEKDAYS, addDays, dow, fmtClock, fmtDate, mondayOf, todayIn } from '../../lib/format'
-import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Notice, PageHeader, Section, Select, Spinner, StatusBadge } from '../../components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Notice, PageHeader, Section, Select, Spinner, StatusBadge, TimeInput } from '../../components/ui'
 import { DateRangeFilter, useDateRange } from '../../components/DateRange'
 
 export default function AvailabilityMatrix() {
@@ -152,8 +152,8 @@ function TutorAvailability({ t, rules }: { t: Row; rules: Row[] }) {
         <div className="space-y-3">
           <Field label="Proposed date"><Input type="date" value={date} onChange={(e) => { setDate(e.target.value); setResult(null) }} /></Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Start time"><Input type="time" value={from} onChange={(e) => { setFrom(e.target.value); setResult(null) }} /></Field>
-            <Field label="End time"><Input type="time" value={to} onChange={(e) => { setTo(e.target.value); setResult(null) }} /></Field>
+            <Field label="Start time"><TimeInput value={from} onChange={(e) => { setFrom(e.target.value); setResult(null) }} /></Field>
+            <Field label="End time"><TimeInput value={to} onChange={(e) => { setTo(e.target.value); setResult(null) }} /></Field>
           </div>
           <Button variant="primary" onClick={check} disabled={extra.loading}>Inspect schedule conflicts</Button>
           {result && <Notice tone={result.ok ? 'green' : 'red'}><ul className="space-y-1">{result.msgs.map((m) => <li key={m}>{m}</li>)}</ul></Notice>}

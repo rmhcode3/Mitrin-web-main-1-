@@ -6,7 +6,7 @@ import { useAuth } from '../../lib/auth'
 import { useAction, useAsync } from '../../lib/hooks'
 import { LEAVE_REASONS } from '../../lib/domain'
 import { WEEKDAYS, WD3, addDays, dow, fmtClock, fmtDate, hhmm, inTz, mondayOf, todayIn } from '../../lib/format'
-import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Modal, Notice, PageHeader, Section, Select, Spinner, StatusBadge, Tabs, useConfirm } from '../../components/ui'
+import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Modal, Notice, PageHeader, Section, Select, Spinner, StatusBadge, Tabs, TimeInput, useConfirm } from '../../components/ui'
 import { useTutorTz } from '../../lib/tutor'
 
 type Tab = 'week' | 'hours' | 'leave'
@@ -126,12 +126,12 @@ export default function TutorAvailability() {
       )}
 
       <Modal open={!!win} onClose={() => setWin(null)} title={`Add hours · ${win ? WEEKDAYS[win.weekday] : ''}`} footer={<><Button onClick={() => setWin(null)}>Cancel</Button><Button variant="primary" loading={busy} onClick={() => void saveWin()}>Add hours</Button></>}>
-        {win && <div className="grid grid-cols-2 gap-4"><Field label="From"><Input type="time" step={900} value={win.start} onChange={(e) => setWin({ ...win, start: e.target.value })} /></Field><Field label="Until"><Input type="time" step={900} value={win.end} onChange={(e) => setWin({ ...win, end: e.target.value })} /></Field></div>}
+        {win && <div className="grid grid-cols-2 gap-4"><Field label="From"><TimeInput step={900} value={win.start} onChange={(e) => setWin({ ...win, start: e.target.value })} /></Field><Field label="Until"><TimeInput step={900} value={win.end} onChange={(e) => setWin({ ...win, end: e.target.value })} /></Field></div>}
       </Modal>
       <Modal open={!!off} onClose={() => setOff(null)} title={`Not available · ${off ? fmtDate(off.date, 'UTC') : ''}`} footer={<><Button onClick={() => setOff(null)}>Cancel</Button><Button variant="primary" loading={busy} onClick={() => void saveOff()}>Save for this day</Button></>}>
         {off && <div className="space-y-4">
           <Field label="Which part of the day?"><Select value={off.all ? 'all' : 'part'} onChange={(e) => setOff({ ...off, all: e.target.value === 'all' })}><option value="all">The whole day</option><option value="part">Only some hours</option></Select></Field>
-          {!off.all && <div className="grid grid-cols-2 gap-4"><Field label="From"><Input type="time" step={900} value={off.start} onChange={(e) => setOff({ ...off, start: e.target.value })} /></Field><Field label="Until"><Input type="time" step={900} value={off.end} onChange={(e) => setOff({ ...off, end: e.target.value })} /></Field></div>}
+          {!off.all && <div className="grid grid-cols-2 gap-4"><Field label="From"><TimeInput step={900} value={off.start} onChange={(e) => setOff({ ...off, start: e.target.value })} /></Field><Field label="Until"><TimeInput step={900} value={off.end} onChange={(e) => setOff({ ...off, end: e.target.value })} /></Field></div>}
           <Field label="Note (optional)"><Input value={off.note} onChange={(e) => setOff({ ...off, note: e.target.value })} /></Field>
           <p className="text-xs text-ink-soft">This changes only this day. Your other weeks stay the same.</p>
         </div>}

@@ -1,5 +1,67 @@
 # CHANGES
 
+## 2026-10-27
+
+### Settings: Add Teachers button
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Settings.tsx` — a "Teacher management" list with an "Add Teachers — Create a new teacher account" row (icon, title, subtitle, chevron) opens the same popup as the Teacher roster (admins and coordinators).
+- **Changed:** `src/pages/admin/Teachers.tsx` — `AddTeacherModal` exported so Settings can reuse it.
+
+### Lead popup: step 3 ticks when the tutor accepts the demo
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Leads.tsx` — step 3 "Tutor accepts demo" is done as soon as the demo is accepted (was: completed); the popup re-checks every 20 seconds while a demo awaits the tutor; step 4 then offers Mark demo completed and Enrol.
+
+### Enrollment: Send enrollment PDF (WhatsApp)
+**Commit:** Uncommitted
+- **Added:** `src/lib/enrollmentPdf.ts` — builds the course information (and, for Finance, fee information) PDF with jsPDF, loaded on demand.
+- **Changed:** `src/pages/admin/StudentDrawer.tsx` — "Send enrollment PDF" button in Enrollment actions: downloads the PDF and opens WhatsApp to the learner with a ready message; the admin attaches the file (WhatsApp links cannot attach files). Fee section only for Finance.
+- **Changed:** `package.json`, `package-lock.json` — added `jspdf`.
+
+### Lead popup: Schedule demo scrolls to the Demo class box
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Leads.tsx` — Schedule demo, Schedule another demo and Reschedule now scroll the popup to the Demo class box where the form opens.
+
+### 12-hour time everywhere
+**Commit:** Uncommitted
+- **Added:** `src/components/ui.tsx` — `TimeInput`, a 12-hour (AM/PM) time dropdown with the same value and onChange shape as the browser time field.
+- **Changed:** `DemoScheduler.tsx`, `scheduling.tsx`, `AvailabilityMatrix.tsx`, `SlotFinder.tsx`, `tutor/TutorAvailability.tsx` — every `<input type="time">` replaced by `TimeInput`, so pickers no longer follow the computer's 24-hour setting. Displayed times already used 12-hour.
+
+### Teacher roster: Add Teachers button
+**Commit:** Uncommitted
+- **Added:** `supabase/functions/add-teacher/index.ts` — admin-only (Super Admin or Coordinator) function that creates the tutor's website login with the typed email and password, fills the same details the public tutor registration collects, and approves the tutor straight away ⚠ DEPLOY
+- **Changed:** `src/pages/admin/Teachers.tsx` — "Add Teachers" button and popup (name, phone, experience, languages, qualifications, Email, editable Email Password prefilled with the existing teachers' password)
+
+### Lead popup: 10-step project flow with a Next step button
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Leads.tsx` — lead side panel opens with a "Next step" section: the 10 flow steps (done / current / upcoming, Staff or Tutor) and one button for the current step (Schedule demo, Mark demo completed, Enrol, Set fees, Allocate classes, Assign tutor, Open attendance, Open payouts, Open enrollment). Steps 5-10 are worked out from the linked enrollment (fees, credits, tutor acceptance, booked/delivered classes, finalized payout, status). No database change; sidebar untouched.
+
+### Reports: Excel-style tables
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Reports.tsx` — every report table uses the gridlines (spreadsheet) table.
+
+### Tutor payouts: PRD review (FR-100 to FR-106), small gaps filled
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Payouts.tsx` — "Open" badge now reads "Draft" (PRD payout states); each earning is labelled with its rate snapshot (FR-123); applied adjustments are listed inside a finalized payout (FR-104/106).
+- **Changed:** `src/pages/admin/Reports.tsx` — Tutor settlement report now includes payout adjustments (Type, Amount, Payout month, Payout status, Paid on) next to learner-level earnings and rate snapshots; still date-filtered with CSV/Excel export.
+- **Deployed:** `supabase/migrations/20261024000014_payouts_notes_links.sql` — applied to the live database on 2026-10-27 in one transaction (payouts, payout_adjustments, student_notes and the three payout functions confirmed present). Verified earlier in a rolled-back run: 25/25 scenarios.
+
+### Fees & payments: Actions alignment and Remind button
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Fees.tsx` — action buttons are left-aligned under the Actions header; new "Remind" button (after Update bill) opens WhatsApp to the learner's contact with a ready fee-due message. Disabled when nothing is outstanding or there is no phone number. No automatic sending and no database change.
+
+### Attendance: Excel-style tables and editable class popup
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Attendance.tsx` — all four tables use the gridlines table; the class popup opens in editable mode.
+- **Changed:** `src/components/scheduling.tsx` — `SessionPanel` gets an optional `editable` prop: attendance marker, meeting link, change time and reassign tutor are inline forms (Cancel class button below). Used by Attendance only.
+
+### Lesson scheduler: list view modelled on the reference page
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/Scheduler.tsx` — new List view (default) next to the Calendar view: stat cards, search, tutor/status filters, date range dropdown and a bordered table; Details opens the existing class panel. Time zone dropdown removed (India time). No database change.
+
+### Tutor slot finder: three-column results modelled on the reference page
+**Commit:** Uncommitted
+- **Changed:** `src/pages/admin/SlotFinder.tsx` — results grouped into Available matches / Partial availability / Conflicts-busy columns with tutor cards; Regular lesson / Trial demo toggle; "Times are in" field removed (India time); Partial-availability cards always have a Contact row (WhatsApp, Call, or Email fallback). No database change.
+
 ## 2026-10-26
 
 ### Teacher roster: editable tutor popup, time zone removed

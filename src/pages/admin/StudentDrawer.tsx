@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Plus, UserCog } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, MessageCircle, Plus, UserCog } from 'lucide-react'
 import { rpc, select, unwrap, type Row } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { useAction, useAsync, useSetting } from '../../lib/hooks'
-import { AGE_GROUPS, LEVELS } from '../../lib/domain'
+import { AGE_GROUPS, LEVELS, waLink } from '../../lib/domain'
+import { downloadEnrollmentPdf } from '../../lib/enrollmentPdf'
 import { digits, fmtDate, fmtDateTime, inr, label, todayIn } from '../../lib/format'
 import { Badge, Button, Drawer, Empty, Field, Input, KV, Modal, Notice, Section, Select, Spinner, Stat, StatusBadge, Tabs, Textarea, useConfirm } from '../../components/ui'
 
@@ -58,6 +59,36 @@ export function StudentDrawer({ enrollmentId, teachers, onClose, onChanged }: { 
   const makeup = Math.min(mk?.missed ?? 0, remaining)
   const aging = mk?.oldest_missed && makeup > 0 && Date.now() - +new Date(mk.oldest_missed) > agingDays * 86400000
   const now = Date.now()
+
+  // Downloads the course (and, for Finance, fee) summary as a PDF, then opens WhatsApp to the learner with a ready message.
+  // WhatsApp links cannot attach files, so the admin attaches the downloaded PDF in the chat.
+  const sendPdf = () => run(async () => {
+    const chat = waLink(c.phone)
+    const win = chat ? window.open('', '_blank') : null // opened now, before the awaits, so the browser does not block it
+    try {
+      let fees: { total: number; paid: number; outstanding: number; installments: { due: string; amount: number; paid: number }[] } | null | undefined
+      if (can('finance')) {
+        fees = null
+        const plan = (await select('fee_plan_summary', '*', (q) => q.eq('enrollment_id', e.id)))[0]
+        if (plan) {
+          const [inst, alloc] = await Promise.all([
+            select('fee_installments', '*', (q) => q.eq('plan_id', plan.plan_id).order('due_date')),
+            select('payment_allocations', '*, payments!inner(plan_id)', (q) => q.eq('payments.plan_id', plan.plan_id)),
+          ])
+          fees = {
+            total: Number(plan.total_amount ?? plan.total_due), paid: Number(plan.paid), outstanding: Math.max(0, Number(plan.outstanding)),
+            installments: inst.map((i) => ({ due: i.due_date as string, amount: Number(i.amount), paid: alloc.filter((a) => a.installment_id === i.id).reduce((n, a) => n + Number(a.amount), 0) })),
+          }
+        }
+      }
+      await downloadEnrollmentPdf({
+        learner: stu.full_name, course: `${one<Row>(e.languages)?.name ?? ''}${stu.level ? ' · ' + stu.level : ''}`, tutor: tName(e.primary_teacher_id),
+        term: e.term_start || e.term_end ? `${fmtDate(e.term_start)} to ${fmtDate(e.term_end)}` : 'Not set', timing: e.preferred_timing ?? '',
+        classes: { allocated: bal?.allocated ?? 0, booked: bal?.reserved ?? 0, delivered: bal?.fulfilled ?? 0, remaining }, fees,
+      })
+      if (win && chat) win.location.href = `${chat}?text=${encodeURIComponent(`Hello ${c.name ?? stu.full_name}, welcome to MITRIN The Language School! Your enrollment summary is attached.`)}`
+    } catch (err) { win?.close(); throw err }
+  }, 'PDF downloaded. Attach it in the WhatsApp chat.')
   const upcoming = parts.filter((p) => p.sessions.status === 'scheduled' && +new Date(p.sessions.end_at) >= now).reverse()
   const past = parts.filter((p) => !(p.sessions.status === 'scheduled' && +new Date(p.sessions.end_at) >= now))
   const termEnded = e.term_end && e.term_end < todayIn('Asia/Kolkata') && e.status === 'active'
@@ -132,6 +163,7 @@ export function StudentDrawer({ enrollmentId, teachers, onClose, onChanged }: { 
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={() => setModal('credits')}><Plus size={15} /> Allocate classes</Button>
                   <Button onClick={() => setModal('course')}>Add another course</Button>
+                  <Button loading={busy} onClick={() => void sendPdf()}><MessageCircle size={15} /> Send enrollment PDF</Button>
                   {e.status === 'pending_completion' && <Button onClick={() => void setStatus('active', 'Course reactivated')}>Back to active</Button>}
                   {['active', 'pending_completion'].includes(e.status) && <Button disabled={owed > 0} title={owed > 0 ? `${owed} classes are still owed` : ''} onClick={() => void complete()}><CheckCircle2 size={15} /> Mark completed</Button>}
                   <Button variant="danger" onClick={() => setModal('withdraw')}>Withdraw / close</Button>

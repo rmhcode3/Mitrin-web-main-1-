@@ -33,6 +33,22 @@ const field = 'min-h-11 rounded-xl border border-line bg-white px-3 text-[15px] 
 const fw = (c?: string) => (c && /(^|s)w-/.test(c) ? '' : 'w-full')
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={cx(field, fw(p.className), p.className)} />
 export const Select = (p: SelectHTMLAttributes<HTMLSelectElement>) => <select {...p} className={cx(field, fw(p.className), 'pr-8', p.className)} />
+
+// 12-hour time picker. Same value (HH:MM, 24-hour) and onChange shape as <input type="time">, but always shows AM/PM.
+const clock12 = (t: string) => { const [h, m] = t.split(':').map(Number); return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}` }
+export function TimeInput({ value, onChange, step = 900, min, className }: { value: string; onChange: (e: { target: { value: string } }) => void; step?: number; min?: string; className?: string }) {
+  const every = Math.max(1, Math.round(step / 60))
+  const times: string[] = []
+  for (let m = 0; m < 1440; m += every) times.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`)
+  const cur = (value ?? '').slice(0, 5)
+  if (cur && !times.includes(cur)) { times.push(cur); times.sort() }
+  return (
+    <Select value={cur} onChange={(e) => onChange({ target: { value: e.target.value } })} className={className}>
+      {!cur && <option value="">Select time</option>}
+      {times.map((t) => <option key={t} value={t} disabled={!!min && t < min && t !== cur}>{clock12(t)}</option>)}
+    </Select>
+  )
+}
 export const Textarea = (p: TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={cx(field, fw(p.className), 'py-2 min-h-24', p.className)} />
 
 export function Field({ label, hint, error, required, children, className }: { label: string; hint?: string; error?: string | null; required?: boolean; children: ReactNode; className?: string }) {

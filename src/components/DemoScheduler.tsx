@@ -4,7 +4,7 @@ import { useAction } from '../lib/hooks'
 import { fmtDateTime, fmtTime, label, shortTz, todayIn, zonedToUtc } from '../lib/format'
 import { MessageCircle } from 'lucide-react'
 import { waLink } from '../lib/domain'
-import { Badge, Button, Field, Input, Notice, type Tone } from './ui'
+import { Badge, Button, Field, Input, Notice, TimeInput, type Tone } from './ui'
 
 interface Tutor { tutor_id: string; tutor_name: string; availability: string }
 const aTone: Record<string, Tone> = { confirmed: 'green', tentative: 'yellow', occupied: 'red', on_leave: 'red', unavailable: 'red', outside_hours: 'gray' }
@@ -46,7 +46,7 @@ export function DemoScheduler({ lead, replaces, teachers, onDone }: { lead: Row;
     <div className="space-y-4">
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Date" required><Input type="date" min={todayIn(tz)} value={date} onChange={(e) => { setDate(e.target.value); setTutors(null) }} /></Field>
-        <Field label="Start time (India time, IST)" required><Input type="time" min={date === todayIn(tz) ? new Date().toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }) : undefined} value={time} step={900} onChange={(e) => { setTime(e.target.value); setTutors(null) }} /></Field>
+        <Field label="Start time (India time, IST)" required><TimeInput min={date === todayIn(tz) ? new Date().toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }) : undefined} value={time} step={900} onChange={(e) => { setTime(e.target.value); setTutors(null) }} /></Field>
       </div>
       <Button variant="primary" onClick={() => void find()} loading={finder.busy} disabled={!date || !time}>Find available tutors</Button>
 

@@ -64,7 +64,8 @@ export default function Payouts() {
     return [...by.entries()].map(([id, items]) => {
       const payout = data?.payouts?.find((p) => p.teacher_id === id)
       const pendingAdj = (data?.adjs ?? []).filter((a) => a.teacher_id === id && !a.applied_payout_id)
-      return { id, name: tName(id), items, payout, noRate: items.filter((i) => i.rate_snapshot == null).length, total: items.reduce((s, i) => s + Number(i.rate_snapshot ?? 0), 0), pendingAdj }
+      const appliedAdj = payout ? (data?.adjs ?? []).filter((a) => a.applied_payout_id === payout.id) : []
+      return { id, name: tName(id), items, payout, noRate: items.filter((i) => i.rate_snapshot == null).length, total: items.reduce((s, i) => s + Number(i.rate_snapshot ?? 0), 0), pendingAdj, appliedAdj }
     }).sort((a, b) => a.name.localeCompare(b.name))
   }, [data])
 
@@ -103,7 +104,7 @@ export default function Payouts() {
                     </button>
                     <div className="flex flex-wrap items-center gap-2">
                       <b className="text-lg">{inr(g.payout ? g.payout.total : g.total + g.pendingAdj.reduce((a, x) => a + Number(x.amount), 0))}</b>
-                      {g.payout ? <StatusBadge status={g.payout.status === 'paid' ? 'paid' : 'finalized'} text={g.payout.status === 'paid' ? 'Paid' : 'Finalized'} /> : <Badge tone="orange">Open</Badge>}
+                      {g.payout ? <StatusBadge status={g.payout.status === 'paid' ? 'paid' : 'finalized'} text={g.payout.status === 'paid' ? 'Paid' : 'Finalized'} /> : <Badge tone="orange">Draft</Badge>}
                       {!g.payout && data.payouts && <Button size="sm" variant="primary" disabled={busy || g.noRate > 0 || (!g.items.length && !g.pendingAdj.length)} title={g.noRate > 0 ? 'Set a rate first' : ''} onClick={() => void finalize(g)}>Finalize</Button>}
                       {g.payout?.status === 'finalized' && <Button size="sm" variant="primary" onClick={() => setPaying(g.payout as Row)}>Mark paid</Button>}
                       {data.adjs && <Button size="sm" onClick={() => setAdj({ id: g.id, name: g.name, payout: g.payout })}>Adjustment</Button>}
@@ -112,7 +113,8 @@ export default function Payouts() {
                   {open === g.id && (
                     <div className="border-t border-line p-4 space-y-3">
                       {g.payout && <p className="text-xs text-ink-soft">Finalized {fmtDate(g.payout.finalized_at)} · {g.payout.item_count} items {inr(g.payout.items_total)}{Number(g.payout.adjustments_total) !== 0 && ` + adjustments ${inr(g.payout.adjustments_total)}`}{g.payout.paid_at && ` · paid ${fmtDate(g.payout.paid_at)} via ${g.payout.pay_method}${g.payout.pay_reference ? ` (${g.payout.pay_reference})` : ''}`}</p>}
-                      <ul className="divide-y divide-line text-sm">{g.items.map((i) => <li key={i.id} className="py-2 flex justify-between gap-3"><span>{fmtDate(i.earned_on)} · <b>{i.enrollments?.students?.full_name}</b> <span className="text-ink-soft">{one<Row>(i.enrollments?.languages)?.name}</span></span><span>{i.rate_snapshot == null ? <Badge tone="yellow">No rate</Badge> : inr(i.rate_snapshot)} {i.payout_id && <Lock size={12} className="inline text-ink-soft" />}</span></li>)}</ul>
+                      <ul className="divide-y divide-line text-sm">{g.items.map((i) => <li key={i.id} className="py-2 flex justify-between gap-3"><span>{fmtDate(i.earned_on)} · <b>{i.enrollments?.students?.full_name}</b> <span className="text-ink-soft">{one<Row>(i.enrollments?.languages)?.name}</span></span><span><span className="text-xs text-ink-soft">rate snapshot </span>{i.rate_snapshot == null ? <Badge tone="yellow">No rate</Badge> : inr(i.rate_snapshot)} {i.payout_id && <Lock size={12} className="inline text-ink-soft" />}</span></li>)}</ul>
+                      {g.appliedAdj.map((a) => <p key={a.id} className="text-sm"><Badge tone="purple">Adjustment</Badge> {inr(a.amount)} · {a.reason} <span className="text-xs text-ink-soft">(included in this payout · recorded {fmtDate(a.created_at)})</span></p>)}
                       {g.pendingAdj.map((a) => <p key={a.id} className="text-sm"><Badge tone="purple">Adjustment</Badge> {inr(a.amount)} · {a.reason} <span className="text-xs text-ink-soft">(applies at next finalization)</span></p>)}
                     </div>
                   )}

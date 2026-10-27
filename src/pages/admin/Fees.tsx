@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, CalendarClock, CheckCircle2, Lock, Plus, Unlock, Wallet } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CheckCircle2, Lock, MessageCircle, Plus, Unlock, Wallet } from 'lucide-react'
 import { rpc, select, type Row } from '../../lib/api'
 import { useAction, useAsync, useSetting } from '../../lib/hooks'
-import { PAY_METHODS } from '../../lib/domain'
+import { PAY_METHODS, waLink } from '../../lib/domain'
 import { addDays, fmtDate, inr, label, todayIn } from '../../lib/format'
 import { Badge, Button, DataTable, Drawer, Empty, ErrorBox, ExportMenu, Field, Input, KV, Modal, Notice, PageHeader, SearchBox, Section, Select, Spinner, Stat, StatusBadge, Textarea, useConfirm } from '../../components/ui'
 
@@ -170,6 +170,13 @@ export default function Fees() {
   const overdue = (data?.rows ?? []).filter((r) => r.overdue_amount > 0)
   const upcoming = (data?.rows ?? []).filter((r) => r.outstanding > 0 && r.overdue_amount <= 0 && r.next_due && r.next_due <= addDays(todayIn('Asia/Kolkata'), 30))
 
+  const phoneOf = (r: Row) => one<Row>(r.students?.student_contacts)?.phone as string | undefined
+  const remind = (r: Row) => {
+    const due = r.overdue_amount > 0 ? `${inr(r.overdue_amount)} is overdue` : `${inr(r.outstanding)} is due${r.next_due ? ` on ${fmtDate(r.next_due)}` : ''}`
+    const text = `Hello, this is a reminder from Mitrin The Language School. The fee for ${r.students?.full_name}'s ${one<Row>(r.languages)?.name ?? ''} course: ${due}. Please make the payment at the earliest. Thank you.`
+    window.open(`${waLink(phoneOf(r))}?text=${encodeURIComponent(text)}`, '_blank', 'noopener')
+  }
+
   const hold = async (r: Row) => {
     if (r.state === 'on_hold') {
       const c = await confirm({ title: 'Release payment hold?', body: <p>The tutor will be able to book new classes. Cancelled classes are not restored automatically; they rebook fresh times.</p>, reason: 'Release note (e.g. payment cleared, reference)', confirmText: 'Release hold' })
@@ -203,9 +210,10 @@ export default function Fees() {
               { h: 'Outstanding', cell: (r) => <b className={r.overdue_amount > 0 ? 'text-red-700' : ''}>{inr(Math.max(0, r.outstanding))}</b> },
               { h: 'Status', cell: (r) => <StatusBadge status={r.state} text={label[r.state]} /> },
               { h: 'Actions', cell: (r) => (
-                <div className="flex flex-wrap gap-1.5 justify-end" onClick={(e) => e.stopPropagation()}>
+                <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
                   <Button size="sm" variant="primary" onClick={() => setModal({ t: 'pay', plan: r })}><Wallet size={13} /> Payment</Button>
                   <Button size="sm" onClick={() => setModal({ t: 'adjust', plan: r })}>Update bill</Button>
+                  <Button size="sm" disabled={!(Number(r.outstanding) > 0) || !phoneOf(r)} title={!phoneOf(r) ? 'No phone number on file' : !(Number(r.outstanding) > 0) ? 'Nothing outstanding' : 'Send a fee reminder on WhatsApp'} onClick={() => remind(r)}><MessageCircle size={13} /> Remind</Button>
                   <Button size="sm" disabled={busy || ['completed', 'withdrawn'].includes(r.enr?.status)} onClick={() => void hold(r)}>{r.state === 'on_hold' ? <><Unlock size={13} /> Release</> : <><Lock size={13} /> Hold</>}</Button>
                 </div>) },
             ]} />

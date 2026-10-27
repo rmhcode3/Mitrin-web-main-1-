@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import { CalendarDays, ChevronDown, Filter, KanbanSquare, List, MessageCircle, Phone, Plus, UserCheck, XCircle } from 'lucide-react'
@@ -8,6 +8,7 @@ import { useAuth } from '../../lib/auth'
 import { useAction, useAsync } from '../../lib/hooks'
 import { GROUP_PREFS, LEVELS, SOURCES, loadApprovedTeachers, loadLanguages, noteField, waLink } from '../../lib/domain'
 import { digits, fmtDate, fmtDateTime, label } from '../../lib/format'
+import { one } from '../../lib/tutor'
 import { DemoScheduler } from '../../components/DemoScheduler'
 import { Badge, Button, Card, Drawer, Empty, ErrorBox, ExportMenu, Field, Input, KV, Modal, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Textarea, cx, toneClass, useConfirm } from '../../components/ui'
 import { useToast } from '../../lib/toast'
@@ -26,7 +27,20 @@ const STAGES = [
   { v: 'new', l: 'New Lead' }, { v: 'contacted', l: 'Contacted' }, { v: 'demo_scheduled', l: 'Demo Scheduled' }, { v: 'demo_accepted', l: 'Demo Accepted' },
   { v: 'demo_done', l: 'Demo Completed' }, { v: 'converted', l: 'Converted' }, { v: 'lost', l: 'Lost Lead' },
 ] as const
-const formatLabel = (v: string) => GROUP_PREFS.find((g) => g.v === v)?.l ?? '—'
+// The ten-step project flow shown in the lead panel. `tutor` marks the steps the tutor performs.
+const FLOW = [
+  { t: 'Enquiry comes in', d: 'Coordinator adds the lead' },
+  { t: 'Demo booked', d: 'Coordinator picks free tutor' },
+  { t: 'Tutor accepts demo', d: 'Done, no-show or re-demo', tutor: true },
+  { t: 'Enrollment created', d: 'Course, classes, term dates' },
+  { t: 'Fees set', d: 'Finance adds installments' },
+  { t: 'Class credits given', d: 'Coordinator allocates classes' },
+  { t: 'Tutor accepts student', d: 'Schedules classes, shares link', tutor: true },
+  { t: 'Class and attendance', d: 'Absent becomes makeup', tutor: true },
+  { t: 'Monthly tutor payout', d: 'Finance finalizes, locks' },
+  { t: 'Course closed', d: 'Completed or withdrawn' },
+] as { t: string; d: string; tutor?: boolean }[]
+const formatLabel =(v: string) => GROUP_PREFS.find((g) => g.v === v)?.l ?? '—'
 const stageLabel = (v: string) => STAGES.find((s) => s.v === v)?.l ?? v
 
 const blank = { enquirer_name: '', learner_name: '', phone: '', email: '', language_id: '', level: 'Beginner', age_group: '', preferred_timing: '', group_preference: 'either', source: 'Call', notes: '', tz: 'Asia/Kolkata' }
@@ -117,10 +131,30 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
   const toast = useToast()
   const { can } = useAuth()
   const [mode, setMode] = useState<'view' | 'schedule' | { replace: string }>('view')
+  const demoBox = useRef<HTMLDivElement>(null)
+  // The form opens inside the Demo class box further down the panel, so bring it into view.
+  const openSchedule = (m: 'schedule' | { replace: string } = 'schedule') => { setMode(m); setTimeout(() => demoBox.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50) }
   const [note, setNote] = useState('')
   const [outcome, setOutcome] = useState('')
   const { busy, run } = useAction()
   const audit = useAsync(() => (id && can('super_admin') ? select('audit_events', '*', (q) => q.eq('entity_type', 'leads').eq('entity_id', id).order('created_at', { ascending: false }).limit(30)) : Promise.resolve([])), [id])
+  // While a demo waits for the tutor, re-check every 20 seconds so the step ticks itself once they accept.
+  const waitingTutor = demos.some((d) => d.lead_id === id && d.status === 'awaiting_tutor')
+  useEffect(() => { if (!waitingTutor) return; const t = setInterval(reload, 20000); return () => clearInterval(t) }, [waitingTutor, reload])
+  const enrId = lead?.converted_enrollment_id as string | undefined
+  // Facts for steps 5-10 of the flow; each read is optional because coordinators cannot read fees or payouts.
+  const flow = useAsync(async () => {
+    if (!enrId) return null
+    const [enr, plans, credits, parts, earns] = await Promise.all([
+      select('enrollments', 'id, status, assignment_status, primary_teacher_id', (q) => q.eq('id', enrId)).catch(() => []),
+      select('fee_plan_summary', '*', (q) => q.eq('enrollment_id', enrId)).catch(() => []),
+      select('credit_movements', 'quantity', (q) => q.eq('enrollment_id', enrId)).catch(() => []),
+      select('session_participants', 'enrollment_id, sessions!inner(status)', (q) => q.eq('enrollment_id', enrId)).catch(() => []),
+      select('earning_items', 'id, payout_id', (q) => q.eq('enrollment_id', enrId)).catch(() => []),
+    ])
+    const sess = parts.map((p) => one<Row>(p.sessions)?.status as string)
+    return { enr: enr[0], fees: plans.length > 0, credits: credits.reduce((n, c) => n + Number(c.quantity), 0), booked: sess.filter((s) => s !== 'cancelled').length, delivered: sess.filter((s) => s === 'completed').length, paid: earns.some((x) => x.payout_id) }
+  }, [enrId])
   if (!lead) return null
   const myDemos = demos.filter((d) => d.lead_id === lead.id).sort((a, b) => a.attempt - b.attempt)
   const active = myDemos.find((d) => ['awaiting_tutor', 'accepted'].includes(d.status))
@@ -128,6 +162,47 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
   const closed = ['converted', 'lost'].includes(lead.stage)
   const editable = canWrite && !closed
   const wa = waLink(lead.phone)
+
+  // The 10-step flow. `done[i]` is whether step i+1 is finished; the first unfinished step is the current one.
+  const f = flow.data
+  const converted = lead.stage === 'converted'
+  const live = myDemos.filter((d) => d.status !== 'cancelled')
+  const done = [
+    true,
+    converted || live.length > 0,
+    converted || myDemos.some((d) => ['accepted', 'completed'].includes(d.status)),
+    converted,
+    !!f?.fees,
+    (f?.credits ?? 0) > 0,
+    f?.enr?.assignment_status === 'accepted' && (f?.booked ?? 0) > 0,
+    (f?.delivered ?? 0) > 0,
+    !!f?.paid,
+    ['completed', 'withdrawn'].includes(f?.enr?.status),
+  ]
+  const firstOpen = done.indexOf(false)
+  const current = lead.stage === 'lost' ? -1 : firstOpen === -1 ? 10 : firstOpen
+  const accepted = myDemos.find((d) => d.status === 'accepted')
+  const waiting = myDemos.find((d) => d.status === 'awaiting_tutor')
+  const nextBtn = (text: string, onClick: () => void, loadingNow = false) => <Button variant="primary" loading={loadingNow} onClick={onClick}>{text}</Button>
+  const nextAction = (): { hint: string; btn?: ReactNode } => {
+    switch (current) {
+      case 1: return { hint: 'Pick a free tutor and book the demo.', btn: nextBtn(myDemos.length ? 'Schedule another demo' : 'Schedule demo', () => openSchedule()) }
+      case 2:
+        if (waiting) return { hint: `Waiting for ${tName(waiting.teacher_id)} to accept the demo.` }
+        return { hint: 'The last demo did not go ahead. Book another one.', btn: nextBtn('Schedule another demo', () => openSchedule()) }
+      case 3: return accepted
+        ? { hint: 'The tutor accepted the demo. After it is held, mark it completed, then enrol the learner.', btn: <div className="flex flex-wrap gap-2">{nextBtn('Mark demo completed', () => void outcomeFor(accepted, 'completed'), busy)}{nextBtn('Enrol: convert to student', () => void convert(), busy)}</div> }
+        : { hint: 'The learner is ready to start. Create the student and enrollment.', btn: nextBtn('Enrol: convert to student', () => void convert(), busy) }
+      case 4: return { hint: 'Finance adds the fee installments for this enrollment.', btn: can('finance') ? nextBtn('Set fees', () => nav('/admin/fees')) : undefined }
+      case 5: return { hint: 'Allocate the classes the learner has paid for.', btn: nextBtn('Allocate classes', () => nav(`/admin/students?open=${enrId}`)) }
+      case 6: return { hint: f?.enr?.assignment_status === 'accepted' ? 'The tutor accepted. Waiting for classes to be scheduled and the link shared.' : f?.enr?.primary_teacher_id ? 'Waiting for the tutor to accept the student.' : 'Assign a tutor. They accept the student, then schedule classes.', btn: f?.enr?.assignment_status === 'accepted' ? undefined : nextBtn('Assign tutor', () => nav(`/admin/students?open=${enrId}`)) }
+      case 7: return { hint: 'Classes are booked. Attendance is marked after each class; absences become makeups.', btn: nextBtn('Open attendance', () => nav('/admin/attendance')) }
+      case 8: return { hint: 'Finance finalizes the tutor payout for the month, which locks it.', btn: can('finance') ? nextBtn('Open payouts', () => nav('/admin/payouts')) : undefined }
+      case 9: return { hint: 'Close the enrollment when the course is completed or the learner withdraws.', btn: nextBtn('Open enrollment', () => nav(`/admin/students?open=${enrId}`)) }
+      default: return { hint: 'All ten steps are finished.' }
+    }
+  }
+  const next = current >= 0 ? nextAction() : null
 
   const addNote = () => run(async () => {
     const stamp = `${new Date().toISOString().slice(0, 10)}: ${note.trim()}`
@@ -159,6 +234,29 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
   return (
     <Drawer open onClose={onClose} badge={<StatusBadge status={lead.stage} text={stageLabel(lead.stage)} />} title={lead.learner_name}
       subtitle={`Enquiry from ${lead.enquirer_name} via ${lead.source} on ${fmtDate(lead.created_at)}`}>
+      <Section title="Next step">
+        <ol className="grid grid-cols-2 gap-2 mb-3">
+          {FLOW.map((s, i) => {
+            const isDone = done[i], isNow = i === current
+            const tone = isDone ? 'border-emerald-300 bg-emerald-50' : isNow ? 'border-brand-300 bg-brand-50 ring-2 ring-brand-200' : 'border-line bg-white opacity-60'
+            return (
+              <li key={s.t} className={cx('rounded-xl border p-2.5 text-sm', tone)}>
+                <p className="font-bold leading-tight">{isDone ? '✓ ' : ''}{i + 1}. {s.t}</p>
+                <p className="text-xs text-ink-soft mt-0.5">{s.d}</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider mt-1 text-ink-soft">{s.tutor ? 'Tutor' : 'Staff'}</p>
+              </li>
+            )
+          })}
+        </ol>
+        {lead.stage === 'lost' ? <p className="text-sm text-ink-soft">This enquiry is marked lost. Restore it at the bottom of this panel to continue the flow.</p> : next && (
+          <div className="rounded-xl border border-brand-200 bg-white p-3">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-brand-700">Step {current + 1} of 10 · {FLOW[current]?.t}</p>
+            <p className="text-sm mt-1">{next.hint}</p>
+            {canWrite && next.btn && <div className="mt-3">{next.btn}</div>}
+          </div>
+        )}
+      </Section>
+
       <Section title="Requirements">
         {editable ? <LeadForm key={`${lead.id}-${lead.updated_at}`} inline open lead={lead} languages={languages} leads={leads} onClose={onClose} onSaved={reload} /> : (
         <dl className="grid grid-cols-2 gap-4">
@@ -173,7 +271,7 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
         )}
       </Section>
 
-      <Section title="Demo class">
+      <div ref={demoBox} className="scroll-mt-4"><Section title="Demo class">
         {myDemos.length === 0 && mode === 'view' && <p className="text-sm text-ink-soft mb-3">No demo arranged yet.</p>}
         <ol className="space-y-3 mb-3">
           {myDemos.map((d) => (
@@ -185,7 +283,7 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
               {d.meeting_link && <a className="text-brand-700 underline break-all" href={d.meeting_link} target="_blank" rel="noreferrer">{d.meeting_link}</a>}
               {canWrite && ['awaiting_tutor', 'accepted', 'declined'].includes(d.status) && !closed && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" variant="primary" onClick={() => setMode({ replace: d.id })}><CalendarDays size={14} /> Reschedule / change tutor</Button>
+                  <Button size="sm" variant="primary" onClick={() => openSchedule({ replace: d.id })}><CalendarDays size={14} /> Reschedule / change tutor</Button>
                   {d.status !== 'declined' && <Button size="sm" variant="primary" onClick={() => void run(async () => { await rpc('record_demo_outcome', { p_demo: d.id, p_status: 'cancelled', p_outcome: outcome || null }); reload() }, 'Demo cancelled')}>Cancel demo</Button>}
                 </div>
               )}
@@ -202,7 +300,7 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
             </li>
           ))}
         </ol>
-        {canWrite && !closed && mode === 'view' && !active && <Button variant="primary" onClick={() => setMode('schedule')}><CalendarDays size={16} /> {myDemos.length ? 'Schedule another demo' : 'Schedule demo'}</Button>}
+        {canWrite && !closed && mode === 'view' && !active && <Button variant="primary" onClick={() => openSchedule()}><CalendarDays size={16} /> {myDemos.length ? 'Schedule another demo' : 'Schedule demo'}</Button>}
         {mode !== 'view' && (
           <div className="rounded-xl border border-brand-200 bg-white p-4">
             <p className="font-bold mb-3">{typeof mode === 'object' ? 'Reschedule demo' : 'Schedule demo'}</p>
@@ -210,7 +308,7 @@ function LeadDrawer({ id, leads, demos, teachers, languages, canWrite, onClose, 
             <Button variant="ghost" className="mt-2" onClick={() => setMode('view')}>Cancel</Button>
           </div>
         )}
-      </Section>
+      </Section></div>
 
       {!editable && <Section title="Follow-up notes">
         <pre className="whitespace-pre-wrap font-sans text-sm mb-3">{lead.notes || 'No notes yet.'}</pre>

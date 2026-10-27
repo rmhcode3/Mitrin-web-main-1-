@@ -13,7 +13,7 @@ function Report<T>({ rows, cols, name, empty }: { rows: T[]; cols: (Col<T> & { c
   return (
     <>
       <div className="flex justify-between items-center mb-3"><p className="text-sm text-ink-soft">{rows.length} row{rows.length === 1 ? '' : 's'}</p><ExportMenu name={name} rows={rows} cols={cols} /></div>
-      <DataTable rows={rows} rowKey={(_, i) => String(i)} empty={<Empty title={empty} />}
+      <DataTable grid rows={rows} rowKey={(_, i) => String(i)} empty={<Empty title={empty} />}
         columns={cols.map((c, i) => ({ h: c.header, primary: i === 0, cell: (r: T) => c.cell?.(r) ?? String(c.value(r) ?? '—') }))} />
     </>
   )
@@ -36,7 +36,7 @@ export default function Reports() {
   const { data, loading, error, reload } = useAsync(async () => {
     const lo = `${from}T00:00:00+05:30`, hi = `${addDays(to, 1)}T00:00:00+05:30`
     const needTeach = coord || fin
-    const [enr, bal, mk, moves, tps, sess, leads, demos, items, fees, conf, payouts, tnames, leaves] = await Promise.all([
+    const [enr, bal, mk, moves, tps, sess, leads, demos, items, fees, conf, payouts, tnames, leaves, adjs] = await Promise.all([
       needTeach ? select('enrollments', 'id, status, assignment_status, primary_teacher_id, students(full_name), languages(name)') : [],
       needTeach ? select('enrollment_balances') : [], needTeach ? select('enrollment_makeup') : [],
       needTeach ? select('credit_movements', 'enrollment_id, quantity, allocation_period') : [],
@@ -48,8 +48,9 @@ export default function Reports() {
       fin ? select('fee_plan_summary') : [], coord ? select('availability_confirmations', '*', (x) => x.eq('week_start', addDays(mondayOf(today), 7))) : [],
       fin ? select('payouts', '*').catch(() => []) : [], fin ? select('profiles', 'id, full_name', (x) => x.eq('role', 'teacher')) : [],
       coord ? select('teacher_leaves', 'teacher_id, start_date, end_date, status', (x) => x.eq('status', 'approved').lte('start_date', to).gte('end_date', from)) : [],
+      fin ? select('payout_adjustments', '*', (x) => x.gte('created_at', lo).lt('created_at', hi)).catch(() => []) : [],
     ])
-    return { enr, bal, mk, moves, tps, sess, leads, demos, items, fees, conf, payouts, tnames, leaves }
+    return { enr, bal, mk, moves, tps, sess, leads, demos, items, fees, conf, payouts, tnames, leaves, adjs }
   }, [from, to])
 
   const s = q.trim().toLowerCase()
@@ -76,7 +77,20 @@ export default function Reports() {
 
   const finance = useMemo(() => d?.fees.map((f) => { const e = d.enr.find((x) => x.id === f.enrollment_id); return { name: e?.students?.full_name as string, course: one<Row>(e?.languages)?.name as string, total: Number(f.total_due), paid: Number(f.paid), outstanding: Math.max(0, Number(f.outstanding)), advance: Math.max(0, -Number(f.outstanding)), overdue: Number(f.overdue_amount), next: f.next_due as string | null, status: e?.status as string } }).filter((r) => !s || String(r.name).toLowerCase().includes(s)) ?? [], [d, s])
 
-  const settlement = useMemo(() => d?.items.map((i) => ({ tutor: d.tnames.find((t) => t.id === i.teacher_id)?.full_name as string, date: i.earned_on as string, learner: i.enrollments?.students?.full_name as string, course: one<Row>(i.enrollments?.languages)?.name as string, rate: i.rate_snapshot as number | null, state: i.payout_id ? (d.payouts.find((p: Row) => p.id === i.payout_id)?.status === 'paid' ? 'Paid' : 'Finalized') : 'Open' })).filter((r) => !s || [r.tutor, r.learner].some((v) => String(v).toLowerCase().includes(s))) ?? [], [d, s])
+  const settlement = useMemo(() => {
+    if (!d) return []
+    const tn = (id: string) => d.tnames.find((t) => t.id === id)?.full_name as string
+    const po = (id: string | null) => (id ? d.payouts.find((p: Row) => p.id === id) : undefined)
+    const earned = d.items.map((i) => {
+      const p = po(i.payout_id)
+      return { tutor: tn(i.teacher_id), type: 'Earning', date: i.earned_on as string, learner: i.enrollments?.students?.full_name as string, course: one<Row>(i.enrollments?.languages)?.name as string, rate: i.rate_snapshot as number | null, amount: (i.rate_snapshot ?? null) as number | null, month: (p?.period_month ?? '') as string, paidOn: (p?.paid_at ? String(p.paid_at).slice(0, 10) : '') as string, state: p ? (p.status === 'paid' ? 'Paid' : 'Finalized') : 'Draft' }
+    })
+    const adjusted = d.adjs.map((a: Row) => {
+      const p = po(a.applied_payout_id)
+      return { tutor: tn(a.teacher_id), type: 'Adjustment', date: String(a.created_at).slice(0, 10), learner: '—', course: a.reason as string, rate: null, amount: Number(a.amount), month: (p?.period_month ?? '') as string, paidOn: (p?.paid_at ? String(p.paid_at).slice(0, 10) : '') as string, state: p ? (p.status === 'paid' ? 'Paid' : 'Finalized') : 'Pending' }
+    })
+    return [...earned, ...adjusted].filter((r) => !s || [r.tutor, r.learner, r.course].some((v) => String(v).toLowerCase().includes(s)))
+  }, [d, s])
 
   const admissions = useMemo(() => {
     if (!d) return { rows: [] as { k: string; v: number }[] }
@@ -113,7 +127,9 @@ export default function Reports() {
             { header: 'Student', value: (r) => r.name }, { header: 'Course', value: (r) => r.course }, { header: 'Total due (INR)', value: (r) => r.total, cell: (r) => inr(r.total) }, { header: 'Paid (INR)', value: (r) => r.paid, cell: (r) => inr(r.paid) }, { header: 'Outstanding (INR)', value: (r) => r.outstanding, cell: (r) => inr(r.outstanding) },
             { header: 'Advance (INR)', value: (r) => r.advance, cell: (r) => inr(r.advance) }, { header: 'Overdue (INR)', value: (r) => r.overdue, cell: (r) => (r.overdue ? <b className="text-red-700">{inr(r.overdue)}</b> : '—') }, { header: 'Next due', value: (r) => r.next ?? '', cell: (r) => fmtDate(r.next) }, { header: 'Course status', value: (r) => label[r.status ?? ''] ?? r.status }]} />}
           {tab === 'settlement' && <Report name="tutor-settlement" empty="No earning items in this range" rows={settlement} cols={[
-            { header: 'Tutor', value: (r) => r.tutor }, { header: 'Date', value: (r) => r.date, cell: (r) => fmtDate(r.date) }, { header: 'Learner', value: (r) => r.learner }, { header: 'Course', value: (r) => r.course }, { header: 'Rate snapshot (INR)', value: (r) => r.rate ?? '', cell: (r) => (r.rate == null ? <Badge tone="yellow">No rate</Badge> : inr(r.rate)) }, { header: 'Payout status', value: (r) => r.state }]} />}
+            { header: 'Tutor', value: (r) => r.tutor }, { header: 'Type', value: (r) => r.type }, { header: 'Date', value: (r) => r.date, cell: (r) => fmtDate(r.date) }, { header: 'Learner', value: (r) => r.learner }, { header: 'Course / reason', value: (r) => r.course },
+            { header: 'Rate snapshot (INR)', value: (r) => r.rate ?? '', cell: (r) => (r.type === 'Adjustment' ? '—' : r.rate == null ? <Badge tone="yellow">No rate</Badge> : inr(r.rate)) }, { header: 'Amount (INR)', value: (r) => r.amount ?? '', cell: (r) => (r.amount == null ? '—' : inr(r.amount)) },
+            { header: 'Payout month', value: (r) => r.month ? String(r.month).slice(0, 7) : '', cell: (r) => (r.month ? String(r.month).slice(0, 7) : '—') }, { header: 'Payout status', value: (r) => r.state }, { header: 'Paid on', value: (r) => r.paidOn, cell: (r) => (r.paidOn ? fmtDate(r.paidOn) : '—') }]} />}
           {tab === 'admissions' && <Report name="admissions" empty="No enquiries in this range" rows={admissions.rows} cols={[{ header: 'Measure', value: (r) => r.k }, { header: 'Count', value: (r) => (r.k === 'Conversion rate' ? `${r.v}%` : r.v) }]} />}
         </>
       )}

@@ -1,12 +1,13 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Activity, Download, History, Lock, RotateCcw, Upload } from 'lucide-react'
+import { Activity, ChevronRight, Download, History, Lock, RotateCcw, Upload, UserPlus } from 'lucide-react'
 import { rpc, select, unwrap, type Row } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 import { useToast } from '../../lib/toast'
 import { clearSettingCache, useAction, useAsync } from '../../lib/hooks'
 import { fmtDateTime, shortTz, zonedToUtc, fmtTime } from '../../lib/format'
+import { AddTeacherModal } from './Teachers'
 import { Badge, Button, Card, Empty, ErrorBox, Field, Input, Modal, Notice, PageHeader, SearchBox, Section, Select, Spinner, Stat, Textarea } from '../../components/ui'
 
 const show = (v: unknown) => (typeof v === 'boolean' ? (v ? 'On' : 'Off') : typeof v === 'string' ? v : String(v))
@@ -75,6 +76,7 @@ function Languages({ canEdit }: { canEdit: boolean }) {
 export default function Settings() {
   const { can, profile } = useAuth()
   const toast = useToast()
+  const [addingTeacher, setAddingTeacher] = useState(false)
   const [q, setQ] = useState('')
   const [drafts, setDrafts] = useState<Record<string, unknown>>({})
   const [confirming, setConfirming] = useState<null | { def: Row; next: unknown; kind: 'change' | 'default' | 'rollback'; from?: number }>(null)
@@ -142,6 +144,19 @@ export default function Settings() {
   return (
     <>
       <PageHeader title="Settings" subtitle="Change how Mitrin runs without a developer. Every change is validated, needs a reason, and applies to new records from now on. Past classes, credits, payments and payouts are never recalculated." />
+      {can('coordinator') && (
+        <section className="mb-6" aria-labelledby="g-teachers">
+          <h2 id="g-teachers" className="text-xs font-bold uppercase tracking-wider text-ink-soft mb-2">Teacher management</h2>
+          <Card className="divide-y divide-line overflow-hidden">
+            <button type="button" onClick={() => setAddingTeacher(true)} className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-sand/60">
+              <span className="grid place-items-center size-11 rounded-xl bg-brand-50 text-brand-700"><UserPlus size={20} /></span>
+              <span className="flex-1 min-w-0"><span className="block font-bold">Add Teachers</span><span className="block text-sm text-ink-soft">Create a new teacher account</span></span>
+              <ChevronRight size={18} className="text-ink-soft" />
+            </button>
+          </Card>
+        </section>
+      )}
+      {addingTeacher && <AddTeacherModal onClose={() => setAddingTeacher(false)} onDone={() => setAddingTeacher(false)} />}
       <SearchBox className="max-w-xl mb-5" value={q} onChange={setQ} placeholder="Search settings: e.g. class length, overdue, reminder…" />
       {loading && !data ? <Spinner /> : error ? <ErrorBox message={error} onRetry={reload} /> : data && (
         <div className="space-y-8">

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, Mail, Phone, ShieldOff, UserCheck, X } from 'lucide-react'
+import { Check, Mail, Phone, Plus, ShieldOff, UserCheck, X } from 'lucide-react'
 import { select, unwrap, type Row } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
@@ -8,6 +8,8 @@ import { useAction, useAsync } from '../../lib/hooks'
 import { addDays, digits, fmtClock, fmtDate, fmtDateTime, inr, label, mondayOf, todayIn, WEEKDAYS } from '../../lib/format'
 import { Badge, Button, Card, Drawer, Empty, ErrorBox, Field, Input, KV, Modal, Notice, PageHeader, SearchBox, Section, Select, Spinner, StatusBadge, Tabs, Textarea, useConfirm } from '../../components/ui'
 
+// Prefilled in the Add Teachers popup; the admin can edit it before saving.
+const DEFAULT_TUTOR_PASSWORD = 'Test@123'
 type Tab = 'active' | 'pending' | 'inactive' | 'requests'
 const one = <T,>(x: T | T[] | null | undefined): T | undefined => (Array.isArray(x) ? x[0] : x ?? undefined)
 
@@ -22,6 +24,7 @@ export default function Teachers() {
   const [page, setPage] = useState(1)
   const [openId, setOpenId] = useState<string | null>(null)
   const [rejecting, setRejecting] = useState<Row | null>(null)
+  const [adding, setAdding] = useState(false)
   const [why, setWhy] = useState('')
   const { busy, run } = useAction()
 
@@ -105,7 +108,7 @@ export default function Teachers() {
 
   return (
     <>
-      <PageHeader title="Teacher roster" subtitle="Approve applications, monitor assignments and open any tutor’s full teaching profile." />
+      <PageHeader title="Teacher roster" subtitle="Approve applications, monitor assignments and open any tutor’s full teaching profile." actions={coord ? <Button variant="primary" onClick={() => setAdding(true)}><Plus size={16} /> Add Teachers</Button> : undefined} />
       <div className="mb-4"><Tabs<Tab> value={tab} onChange={(v) => { setTab(v); setPage(1) }} tabs={[{ id: 'active', label: 'Active' }, { id: 'pending', label: 'Pending approval', count: pendingN }, { id: 'inactive', label: 'Suspended / rejected' }, { id: 'requests', label: 'Assignment requests', count: requests.length }]} /></div>
       {data && (
         <Card className="grid gap-3 sm:grid-cols-3 p-4 mb-4 divide-y sm:divide-y-0 sm:divide-x divide-line">
@@ -144,6 +147,8 @@ export default function Teachers() {
 
       {openId && data && <TeacherProfile t={data.tps.find((t) => t.user_id === openId)!} data={data} coord={coord} onClose={() => setOpenId(null)} reload={() => void reload()}
         onApprove={(t) => void decide(t, 'approved')} onReject={(t) => setRejecting(t)} onActive={(t, s) => void setActive(t, s)} />}
+
+      {adding && <AddTeacherModal onClose={() => setAdding(false)} onDone={() => { setAdding(false); void reload() }} />}
 
       <Modal open={!!rejecting} onClose={() => setRejecting(null)} title={`Reject ${rejecting?.profiles?.full_name ?? ''}`}
         footer={<><Button onClick={() => setRejecting(null)}>Back</Button><Button variant="danger" disabled={why.trim().length < 3} loading={busy} onClick={() => void decide(rejecting!, 'rejected', why.trim())}>Reject application</Button></>}>
@@ -284,5 +289,49 @@ function TeacherEditForm({ t, onSaved }: { t: Row; onSaved: () => void }) {
       {err && <p role="alert" className="text-sm text-red-600 mt-3">{err}</p>}
       <div className="mt-4"><Button variant="primary" loading={busy} onClick={() => void save()}>Save changes</Button></div>
     </>
+  )
+}
+
+export function AddTeacherModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const langs = useAsync(() => select<{ name: string }>('languages', 'name', (q) => q.eq('active', true).order('name')), [])
+  const [f, setF] = useState({ full_name: '', email: '', phone: '', experience_years: '', qualifications: '', password: DEFAULT_TUTOR_PASSWORD })
+  const [chosen, setChosen] = useState<string[]>([])
+  const [err, setErr] = useState('')
+  const { busy, run } = useAction()
+  const s = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }))
+  const toggle = (n: string) => setChosen((c) => (c.includes(n) ? c.filter((x) => x !== n) : [...c, n]))
+  const save = () => run(async () => {
+    setErr('')
+    if (f.full_name.trim().length < 2) return setErr('Enter the teacher’s name.')
+    if (!/^\S+@\S+\.\S+$/.test(f.email.trim())) return setErr('Enter a valid email.')
+    if (!/^[0-9]{7,15}$/.test(digits(f.phone))) return setErr('Phone must be 7–15 digits.')
+    if (!chosen.length) return setErr('Choose at least one language.')
+    if (!/^\d{1,2}$/.test(f.experience_years.trim())) return setErr('Experience must be a whole number of years.')
+    if (f.qualifications.trim().length < 2) return setErr('Enter the qualifications.')
+    if (f.password.length < 8) return setErr('The password must be at least 8 characters.')
+    const { data, error } = await supabase.functions.invoke('add-teacher', { body: { ...f, languages: chosen, experience_years: Number(f.experience_years) } })
+    if (error) {
+      let msg = error.message
+      try { msg = (await (error as { context?: Response }).context?.json())?.error ?? msg } catch { /* keep the generic message */ }
+      return setErr(msg)
+    }
+    if (data?.error) return setErr(data.error)
+    onDone()
+  }, 'Teacher added. They can sign in with this email and password.')
+  return (
+    <Modal open onClose={onClose} wide title="Add Teachers" footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} onClick={() => void save()}>Add teacher</Button></>}>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Field label="Full name" required className="sm:col-span-2"><Input value={f.full_name} onChange={s('full_name')} autoComplete="off" /></Field>
+        <Field label="WhatsApp / phone" required><Input inputMode="tel" value={f.phone} onChange={s('phone')} placeholder="9198765xxxxx" /></Field>
+        <Field label="Years of teaching experience" required><Input inputMode="numeric" value={f.experience_years} onChange={s('experience_years')} placeholder="e.g. 3" /></Field>
+        <Field label="Languages taught" required className="sm:col-span-2">
+          {langs.loading ? <Spinner /> : <div className="flex flex-wrap gap-2">{(langs.data ?? []).map((l) => <button type="button" key={l.name} aria-pressed={chosen.includes(l.name)} onClick={() => toggle(l.name)} className={'rounded-full border px-3 py-1.5 text-sm font-semibold ' + (chosen.includes(l.name) ? 'border-brand-600 bg-brand-50 text-brand-800' : 'border-line bg-white')}>{l.name}</button>)}</div>}
+        </Field>
+        <Field label="Qualifications" required className="sm:col-span-2"><Textarea value={f.qualifications} onChange={s('qualifications')} placeholder="Degrees, certificates, teaching background" /></Field>
+        <Field label="Email" required hint="A login is created with this email."><Input type="email" value={f.email} onChange={s('email')} autoComplete="off" /></Field>
+        <Field label="Email Password" required hint="At least 8 characters. You can edit it."><Input value={f.password} onChange={s('password')} autoComplete="off" /></Field>
+      </div>
+      {err && <p role="alert" className="text-sm text-red-600 mt-3">{err}</p>}
+    </Modal>
   )
 }

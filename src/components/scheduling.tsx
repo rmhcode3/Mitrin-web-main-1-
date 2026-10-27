@@ -6,7 +6,7 @@ import { useAction, useAsync, useSetting } from '../lib/hooks'
 import { ABSENCE_REASONS } from '../lib/domain'
 import { WD3, addDays, fmtDate, fmtDateTime, fmtTime, inTz, label, shortTz, todayIn, zonedToUtc, dow, mondayOf } from '../lib/format'
 import { useToast } from '../lib/toast'
-import { Badge, Button, Drawer, Empty, Field, Input, Modal, Notice, Section, Select, Spinner, StatusBadge, Textarea, cx, type Tone, useConfirm } from './ui'
+import { Badge, Button, Drawer, Empty, Field, Input, Modal, Notice, Section, Select, Spinner, StatusBadge, Textarea, TimeInput, cx, type Tone, useConfirm } from './ui'
 
 export const SESSION_SELECT = 'id, teacher_id, start_at, end_at, status, meeting_link, series_id, cancel_reason, session_participants(enrollment_id, attendance, absence_reason, enrollments(id, student_id, primary_teacher_id, students(full_name, timezone), languages(name)))'
 
@@ -172,7 +172,7 @@ export function AttendanceMarker({ session, admin, onSaved, saveLabel = 'Save at
 }
 
 /* ------------------------------------------------------------------ session panel */
-export function SessionPanel({ session, teachers, tz, admin, canCoordinate, onClose, onChanged }: { session: Row; teachers: Row[]; tz: string; admin: boolean; canCoordinate: boolean; onClose: () => void; onChanged: () => void }) {
+export function SessionPanel({ session, teachers, tz, admin, canCoordinate, onClose, onChanged, editable }: { editable?: boolean; session: Row; teachers: Row[]; tz: string; admin: boolean; canCoordinate: boolean; onClose: () => void; onChanged: () => void }) {
   const { isAdmin } = useAuth()
   const confirm = useConfirm()
   const toast = useToast()
@@ -196,7 +196,7 @@ export function SessionPanel({ session, teachers, tz, admin, canCoordinate, onCl
   return (
     <Drawer open onClose={onClose} badge={<StatusBadge status={session.status} text={label[session.status]} />} title={names(session).join(', ') || 'Class'}
       subtitle={`${fmtDateTime(session.start_at, tz)} – ${fmtTime(session.end_at, tz)} (${shortTz(tz, new Date(session.start_at))})${tName && admin ? ` · ${tName}` : ''}`}>
-      <Section title="Learners">
+      {editable && started && session.status !== 'cancelled' ? <Section title="Learners & attendance"><AttendanceMarker session={session} admin={admin} onSaved={() => { onChanged(); onClose() }} /></Section> : (<Section title="Learners">
         <ul className="divide-y divide-line">
           {(session.session_participants as Row[]).map((p) => (
             <li key={p.enrollment_id} className="py-2 flex items-center justify-between gap-2 text-sm">
@@ -206,17 +206,25 @@ export function SessionPanel({ session, teachers, tz, admin, canCoordinate, onCl
           ))}
         </ul>
         {session.status === 'cancelled' && <p className="text-sm text-red-700 mt-2">Cancelled{session.cancel_reason ? `: ${session.cancel_reason}` : ''}. Classes are kept as makeups.</p>}
-      </Section>
+      </Section>)}
 
+      {editable ? <Section title="Meeting link"><LinkForm session={session} onDone={() => { onChanged(); onClose() }} /></Section> : (
       <Section title="Meeting link" action={isAdmin || !admin ? <Button size="sm" onClick={() => setPanel('link')}>{session.meeting_link ? 'Change' : 'Add link'}</Button> : undefined}>
         {session.meeting_link ? (
           <div className="flex flex-wrap items-center gap-2"><a className="text-brand-700 underline break-all text-sm" href={session.meeting_link} target="_blank" rel="noreferrer">{session.meeting_link}</a>
             <Button size="sm" onClick={() => void navigator.clipboard.writeText(session.meeting_link).then(() => toast.ok('Link copied'))}><Copy size={13} /> Copy</Button>
             <a href={session.meeting_link} target="_blank" rel="noreferrer"><Button size="sm" variant="primary"><ExternalLink size={13} /> Open</Button></a></div>
         ) : <p className="text-sm text-ink-soft">No link yet. Add your Zoom or Google Meet link, then share it in your WhatsApp group.</p>}
-      </Section>
+      </Section>)}
 
-      {panel === 'attendance' ? (
+      {editable ? (
+        <>
+          {canEdit && upcoming && <Section title="Change time"><ChangeTime session={session} tz={tz} hasSeries={hasSeries} onDone={() => { onChanged(); onClose() }} /></Section>}
+          {canEdit && upcoming && canCoordinate && <Section title="Reassign to another tutor"><Reassign session={session} teachers={teachers} onDone={() => { onChanged(); onClose() }} /></Section>}
+          {session.status !== 'cancelled' && !started && <p className="text-xs text-ink-soft">Attendance opens when the class starts.</p>}
+          {canEdit && upcoming && <div className="flex flex-wrap gap-2"><Button variant="danger" loading={busy} onClick={() => void cancel()}>Cancel class</Button></div>}
+        </>
+      ) : panel === 'attendance' ? (
         <Section title="Mark attendance"><AttendanceMarker session={session} admin={admin} onSaved={() => { setPanel(null); onChanged(); onClose() }} /></Section>
       ) : panel === 'time' ? (
         <Section title="Change time"><ChangeTime session={session} tz={tz} hasSeries={hasSeries} onDone={() => { onChanged(); onClose() }} /></Section>
@@ -258,7 +266,7 @@ function ChangeTime({ session, tz, hasSeries, onDone }: { session: Row; tz: stri
   const valid = reason.trim() && Number(dur) > 0
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3"><Field label="New date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field><Field label="New start time"><Input type="time" step={step * 60} value={time} onChange={(e) => setTime(e.target.value)} /></Field></div>
+      <div className="grid grid-cols-2 gap-3"><Field label="New date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field><Field label="New start time"><TimeInput step={step * 60} value={time} onChange={(e) => setTime(e.target.value)} /></Field></div>
       <Field label="Length (minutes)"><Input inputMode="numeric" value={dur} onChange={(e) => setDur(e.target.value)} /></Field>
       <Field label="Apply to">
         <Select value={scope} onChange={(e) => setScope(e.target.value as 'this' | 'future')}><option value="this">Only this class</option><option value="future" disabled={!hasSeries}>This and all future classes in the plan{hasSeries ? '' : ' (not a repeating plan)'}</option></Select>
@@ -373,7 +381,7 @@ export function NewClassModal({ teacherId, teachers, defaultTz, preselect, onClo
         </div>
         <div className="grid sm:grid-cols-3 gap-3">
           <Field label="Date" required><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="Start time" required><Input type="time" step={step * 60} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+          <Field label="Start time" required><TimeInput step={step * 60} value={time} onChange={(e) => setTime(e.target.value)} /></Field>
           <Field label="Length (min)"><Input inputMode="numeric" value={mins} onChange={(e) => setMins(e.target.value)} /></Field>
         </div>
         <p className="text-xs text-ink-soft -mt-2">Times in {tz} ({shortTz(tz, start)}). {Number(mins) > 0 && date && `Ends ${fmtTime(end, tz)}.`}</p>
